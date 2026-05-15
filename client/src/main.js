@@ -251,6 +251,7 @@ socket.on('bid:state', data => {
 
 socket.on('game:play-start', data => {
   bidOverlay.classList.add('hidden')
+  document.getElementById('surcontree-announcement').classList.add('hidden')
   currentBidState = null
   applyPlayStart(data)
 })
@@ -276,6 +277,16 @@ btnContree.addEventListener('click', () => {
 btnSurcontree.addEventListener('click', () => {
   socket.emit('bid:surcontree')
   bidOverlay.classList.add('hidden')
+})
+
+socket.on('bid:surcontree-announced', () => {
+  bidOverlay.classList.add('hidden')
+  const el = document.getElementById('surcontree-announcement')
+  el.classList.remove('hidden')
+  // Reset animation so it replays if triggered again
+  el.style.animation = 'none'
+  el.offsetHeight   // force reflow
+  el.style.animation = ''
 })
 
 // ── Trick play ────────────────────────────────────────────────────

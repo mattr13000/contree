@@ -59,9 +59,10 @@ export const state = {
     { suit: 'Diamonds', rank: 'Q'  },
     { suit: 'Clubs',    rank: 'K'  },
   ],
-  pli:           [],    // { rank, suit }[]  – cards played in current trick
-  bid:           null,  // { value, suit, contree } | null
-  bidderNickname: null, // nickname of current bidder (null when not bidding)
+  pli:              [],   // { rank, suit }[]  – cards played in current trick
+  bid:              null, // { value, suit, contree } | null
+  bidderNickname:   null, // nickname of player whose turn it is to bid
+  highBidderNickname: null, // nickname of player who placed the current highest bid
   trump:         null,  // suit string during playing phase
   isMyTurn:      false,
   validCards:    [],    // { rank, suit }[] — cards the local player may play
@@ -102,6 +103,10 @@ function handleCanvasClick(e) {
     if (e.offsetX >= cardX && e.offsetX < cardX + CARD_W && e.offsetY >= y && e.offsetY < y + CARD_H) {
       const card = state.myHand[i]
       if (state.validCards.some(c => c.rank === card.rank && c.suit === card.suit)) {
+        state.myHand.splice(i, 1)
+        state.isMyTurn  = false
+        state.validCards = []
+        render()
         onCardPlay?.(card)
       }
       break
@@ -144,10 +149,11 @@ export function applyDealt(data) {
     }
   })
 
-  state.myHand        = data.myHand
-  state.pli           = []
-  state.bid           = null
-  state.bidderNickname = null
+  state.myHand             = data.myHand
+  state.pli                = []
+  state.bid                = null
+  state.bidderNickname     = null
+  state.highBidderNickname = null
   render()
 }
 
@@ -155,6 +161,7 @@ export function applyBidState(data) {
   state.bid = data.highBid
     ? { value: data.highBid.value, suit: data.highBid.suit, contree: data.contree }
     : null
+  state.highBidderNickname = data.highBid?.bidderNickname ?? null
   const bidder = state.seats.find(s => s.socketId === data.currentBidderSocketId)
   state.bidderNickname = bidder?.nickname ?? null
   render()
@@ -364,45 +371,61 @@ function drawPli() {
   }
 }
 
-// ── Bid / Trump HUD (top-right) ───────────────────────────────────
+// ── Bid HUD — centred between pli zone and south hand ────────────
 function drawBidHUD() {
-  const x = canvas.width - 20
-
-  ctx.save()
-  ctx.textAlign    = 'right'
-  ctx.textBaseline = 'top'
-
-  ctx.font      = 'bold 11px Georgia, serif'
-  ctx.fillStyle = 'rgba(240,230,200,0.45)'
-  ctx.fillText('ENCHÈRE', x, 20)
-
   const bid = state.bid
-  let bidText = '—'
-  if (bid) {
-    const sym     = SUIT_SYMBOLS[bid.suit] ?? bid.suit
-    const contree = bid.contree === 'surcontree' ? ' SURCONTRÉ' : bid.contree === 'contree' ? ' CONTRÉ' : ''
-    bidText = `${bid.value} ${sym}${contree}`
-  }
-  ctx.font      = 'bold 18px Georgia, serif'
-  ctx.fillStyle = 'rgba(240,230,200,0.90)'
-  ctx.fillText(bidText, x, 36)
+  const sym     = bid ? (SUIT_SYMBOLS[bid.suit] ?? bid.suit) : null
+  const contree = bid?.contree === 'surcontree' ? ' SURCONTRÉ'
+                : bid?.contree === 'contree'    ? ' CONTRÉ' : ''
+  const bidText = bid ? `${bid.value} ${sym}${contree}` : '—'
 
-  // Turn indicator: bidding or playing
-  let turnText = null
-  let turnColor = 'rgba(240,230,200,0.50)'
+  let turnText  = null
+  let turnColor = 'rgba(240,230,200,0.65)'
   if (state.trickInfo) {
     const p = state.seats.find(s => s.socketId === state.trickInfo.currentPlayerSocketId)
     if (p) {
       turnText  = p.isMe ? 'Votre tour !' : `Tour de ${p.nickname}`
-      turnColor = p.isMe ? '#daa520' : 'rgba(240,230,200,0.60)'
+      turnColor = p.isMe ? '#daa520' : 'rgba(240,230,200,0.65)'
     }
   } else if (state.bidderNickname) {
     turnText = `Tour : ${state.bidderNickname}`
   }
-  if (turnText) {
-    ctx.font      = 'bold 12px Georgia, serif'
-    ctx.fillStyle = turnColor
-    ctx.fillText(turnText, x, 60)
+
+  // Rows: always label + bid; optional bidder name + turn text
+  const rows = [
+    { text: 'ENCHÈRE', font: 'bold 10px Georgia, serif', color: 'rgba(240,230,200,0.45)', h: 16 },
+    { text: bidText,   font: 'bold 18px Georgia, serif', color: 'rgba(240,230,200,0.90)', h: 26 },
+  ]
+  if (state.highBidderNickname)
+    rows.push({ text: state.highBidderNickname, font: '11px Georgia, serif',   color: 'rgba(240,230,200,0.50)', h: 18 })
+  if (turnText)
+    rows.push({ text: turnText,                 font: 'bold 12px Georgia, serif', color: turnColor,                h: 18 })
+
+  const PAD_X = 20, PAD_Y = 10
+  const boxW  = 230
+  const boxH  = rows.reduce((s, r) => s + r.h, 0) + PAD_Y * 2
+
+  // Vertical: centred in the gap between pli border bottom and south hand / name
+  const gapTop    = cy() + 115                        // just below pli dashed border
+  const gapBottom = canvas.height - CARD_H - 24 - 28  // just above south player name
+  const boxX = cx() - boxW / 2
+  const boxY = Math.max(gapTop + 4,
+               Math.min(gapBottom - boxH - 4,
+                        (gapTop + gapBottom) / 2 - boxH / 2))
+
+  ctx.save()
+
+  ctx.fillStyle = 'rgba(0,0,0,0.30)'
+  ctx.fillRect(boxX, boxY, boxW, boxH)
+
+  ctx.textAlign    = 'center'
+  ctx.textBaseline = 'middle'
+  let y = boxY + PAD_Y
+  for (const row of rows) {
+    ctx.font      = row.font
+    ctx.fillStyle = row.color
+    ctx.fillText(row.text, cx(), y + row.h / 2)
+    y += row.h
   }
 
   ctx.restore()

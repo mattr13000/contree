@@ -133,7 +133,11 @@ function deal(room) {
   const dealerIdx  = prevGame ? (prevGame.dealerIdx + 1) % 4 : 0
   const bidderIdx  = (dealerIdx + 1) % 4
 
-  const seats = room.players.map((socketId, i) => ({
+  // Seat order is shuffled once at session start, then fixed for the whole session
+  const playerOrder = prevGame
+    ? prevGame.seats.map(s => s.socketId)
+    : shuffle([...room.players])
+  const seats = playerOrder.map((socketId, i) => ({
     socketId,
     nickname: players.get(socketId)?.nickname ?? '?',
     position: POSITIONS[i],
@@ -230,7 +234,12 @@ function emitPlayState(roomId) {
     trump,
   })
 
-  const validCards = getValidCards(hands[current.socketId], trickState.trick, trump, current.socketId, seats)
+  const currentHand = hands[current.socketId]
+  if (!currentHand) {
+    console.error('[emitPlayState] no hand for', current.socketId, { handKeys: Object.keys(hands) })
+    return
+  }
+  const validCards = getValidCards(currentHand, trickState.trick, trump, current.socketId, seats)
   io.to(current.socketId).emit('play:your-turn', { validCards })
 }
 
@@ -240,6 +249,10 @@ function resolveTrick(roomId) {
 
   const winner     = trickWinnerCard(trickState.trick, trump)
   const winnerSeat = seats.find(s => s.socketId === winner.socketId)
+  if (!winnerSeat) {
+    console.error('[resolveTrick] winnerSeat not found', { winnerId: winner.socketId, seatIds: seats.map(s => s.socketId) })
+    return
+  }
 
   let pts = trickState.trick.reduce((sum, c) => sum + cardPoints(c.rank, c.suit, trump), 0)
   trickState.tricksPlayed++
@@ -486,7 +499,7 @@ io.on('connection', socket => {
     if (!GAME_SUITS.includes(suit)) return
     if (bidding.highBid && bidNumeric(value) <= bidNumeric(bidding.highBid.value)) return
 
-    bidding.highBid  = { value, suit, team: seats[bidding.currentBidderIdx].team }
+    bidding.highBid  = { value, suit, team: seats[bidding.currentBidderIdx].team, bidderNickname: seats[bidding.currentBidderIdx].nickname }
     bidding.passCount = 0
     bidding.contree   = false
     bidding.currentBidderIdx = (bidding.currentBidderIdx + 1) % 4
@@ -501,6 +514,7 @@ io.on('connection', socket => {
     if (!game || game.phase !== 'bidding') return
     const { bidding, seats } = game
     if (seats[bidding.currentBidderIdx].socketId !== socket.id) return
+    if (bidding.contree === 'surcontree') return
 
     bidding.passCount++
     bidding.currentBidderIdx = (bidding.currentBidderIdx + 1) % 4
@@ -549,11 +563,8 @@ io.on('connection', socket => {
     if (bidding.highBid.team !== myTeam) return
 
     bidding.contree = 'surcontree'
-    bidding.passCount++
-    bidding.currentBidderIdx = (bidding.currentBidderIdx + 1) % 4
-
-    if (bidding.passCount >= 3) { bidWon(player.roomId); return }
-    emitBidState(player.roomId)
+    io.to(player.roomId).emit('bid:surcontree-announced')
+    setTimeout(() => bidWon(player.roomId), 1500)
   })
 
   // ── play:card ─────────────────────────────────────────────────

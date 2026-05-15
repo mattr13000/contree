@@ -24,6 +24,8 @@ npm start          # production: Express serves dist/ + Cards/ + socket.io on $P
 
 **Test the full lobby flow:** open 4 browser tabs at `http://localhost:5173`, each with a different nickname, all join the same room, creator hits Démarrer.
 
+**Dev bots (faster testing):** `npm run dev:bots` spawns 3 bot players that fill a room and auto-start when you join as the 4th player. Bots auto-pass bids (Bot1 opens 80♥ by default), surcontree when appropriate, and auto-play their first valid card each trick. Args: `npm run dev:bots -- 100 Spades` (custom opener), `npm run dev:bots -- pass` (all-pass mode). Script lives at `scripts/dev-bots.js`.
+
 ## Architecture
 
 ### Request flow (dev)
@@ -74,7 +76,7 @@ sessions : Map<sessionId, { socketId, timer }>
   trump,                        // suit string, set when bid is won
   bidding: {
     currentBidderIdx, passCount,
-    highBid,   // null | { value, suit, team }
+    highBid,   // null | { value, suit, team, bidderNickname }
     contree,   // false | 'contree' | 'surcontree'
   },
   trickState: {                 // set when phase becomes 'playing'
@@ -121,7 +123,7 @@ On disconnect the server does **not** call `leaveRoom` immediately — it starts
 | `bid:place` | `{value, suit}` | place a bid; must be higher than current highBid |
 | `bid:pass` | — | pass; 4 passes with no bid → redeal; 3 passes after bid → bid won |
 | `bid:contree` | — | opponent declares contrée on current highBid |
-| `bid:surcontree` | — | bid winner's team declares surcontrée after contrée |
+| `bid:surcontree` | — | bid winner's team declares surcontrée after contrée; immediately ends bidding, game starts after 1.5s |
 | `play:card` | `{rank, suit}` | play a card; validated against follow-suit + trump rules |
 
 ### Socket events (server → client)
@@ -135,7 +137,8 @@ On disconnect the server does **not** call `leaveRoom` immediately — it starts
 | `room:left` | — | leaving player |
 | `room:error` | string | requester (room full/gone) |
 | `game:dealt` | `{seats, myHand, dealerPosition, firstBidderPosition}` | each player individually |
-| `bid:state` | `{currentBidderSocketId, highBid, contree}` | everyone in room |
+| `bid:state` | `{currentBidderSocketId, highBid, contree}` — `highBid` includes `bidderNickname` | everyone in room |
+| `bid:surcontree-announced` | — | everyone in room (client shows slam animation; `game:play-start` follows after 1.5s) |
 | `game:play-start` | `{bid, firstPlayerSocketId, trump}` | everyone in room |
 | `play:state` | `{currentPlayerSocketId, trick, tricksPlayed, scores, trump}` | everyone in room |
 | `play:your-turn` | `{validCards}` | current player only |
@@ -149,16 +152,17 @@ On disconnect the server does **not** call `leaveRoom` immediately — it starts
 ```js
 state = {
   mySocketId,
-  seats[],          // visual order: south(me), west, north, east
-  myHand[],         // { rank, suit }[]
-  pli[],            // current trick cards for drawing — { rank, suit }[]
-  bid,              // { value, suit, contree } | null
-  bidderNickname,   // shown in HUD during bidding
-  trump,            // suit string during playing phase
-  isMyTurn,         // true when it's the local player's turn to play
-  validCards[],     // { rank, suit }[] — cards allowed to play this turn
-  trickInfo,        // { currentPlayerSocketId, scores, tricksPlayed } | null
-  trickMessage,     // "X remporte le pli" shown briefly after trick:won
+  seats[],              // visual order: south(me), west, north, east
+  myHand[],             // { rank, suit }[]
+  pli[],                // current trick cards for drawing — { rank, suit }[]
+  bid,                  // { value, suit, contree } | null
+  bidderNickname,       // nickname of the player currently being asked to bid
+  highBidderNickname,   // nickname of the player who placed the current highest bid
+  trump,                // suit string during playing phase
+  isMyTurn,             // true when it's the local player's turn to play
+  validCards[],         // { rank, suit }[] — cards allowed to play this turn
+  trickInfo,            // { currentPlayerSocketId, scores, tricksPlayed } | null
+  trickMessage,         // "X remporte le pli" shown briefly after trick:won
 }
 ```
 
@@ -193,8 +197,10 @@ position = ['south','west','north','east'][(myIdx + offset) % 4]
 **Team colors:** `isAlly: true` → `#6ab0ff` (blue), `isAlly: false` → `#ff7070` (red). Computed from team field (`'A'` or `'B'`): South+North = A, West+East = B.
 
 **HUD layout:**
-- Top-right: `drawBidHUD()` — current enchère (value + suit symbol + contree status), turn indicator ("Votre tour !" in gold when it's your turn)
+- Centre (between pli zone and south hand): `drawBidHUD()` — black `rgba(0,0,0,0.3)` box containing: ENCHÈRE label, bid value + suit + contree status, high bidder's nickname, turn indicator ("Votre tour !" in gold). Vertically centred in the gap between the pli dashed border (`cy()+115`) and the south player name.
 - Top-left: `drawTrickInfo()` — tricks played (N/8), running scores for both teams (only during playing phase)
+
+**Surcontré announcement:** when `bid:surcontree-announced` is received, the `#surcontree-announcement` div is shown with a CSS slam-in animation (flies from right, settles with slight angle). Hidden again on `game:play-start`.
 
 ---
 
@@ -203,8 +209,12 @@ position = ['south','west','north','east'][(myIdx + offset) % 4]
 ### Done
 - **Step A — Game canvas layout:** static canvas with 4 player positions, team colors, face-down side cards, pli zone, bid HUD placeholder.
 - **Step B — Server game init + dealing:** seat assignment, shuffle/deal, `game:dealt` emitted individually, server-side `games` Map stores hands for future validation.
-- **Step C — Bidding phase:** full bidding state machine (80–Capot, named suit), contree/surcontree, all-pass redeal with advancing dealer, HTML overlay with value/suit selector, bid won → `game:play-start` + `emitPlayState`.
+- **Step C — Bidding phase:** full bidding state machine (80–Capot, named suit), contree/surcontree, all-pass redeal with advancing dealer, HTML overlay with value/suit selector, bid won → `game:play-start` + `emitPlayState`. Surcontrée immediately ends bidding (no further passes needed) and triggers a 1.5s "Surcontré !" slam animation before play starts. Seat order shuffled once per session on first deal (then fixed); dealer index rotates each game.
 - **Step D — Trick play phase:** card validation (follow suit, trump obligation, overtrump, partner exception), trick resolution, scoring (trump/non-trump points, dix de der), belote/rebelote detection, 8 tricks → `game:over`. Client: click-to-play, gold highlight on valid cards, dim on invalid, trick score HUD, "X remporte le pli" message.
+
+### Known bugs
+
+- **Crash at pli 7/8 on Railway deploy** — defensive null-checks added to `resolveTrick` (guards `winnerSeat`) and `emitPlayState` (guards `hands[current.socketId]`), both with `console.error` logging to surface the root cause in Railway logs. Root cause not yet confirmed.
 
 ### Pending refactor (low priority)
 `server/index.js` is ~750 lines. Planned split into `server/state.js` (pure helpers + constants), `server/game.js` (deal/bid/trick logic), `server/index.js` (Express + socket handlers). Do after Step E.

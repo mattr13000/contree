@@ -4,6 +4,7 @@
   "type": "module",
   "scripts": {
     "dev": "concurrently \"nodemon server/index.js\" \"vite\"",
+    "dev:bots": "node scripts/dev-bots.js",
     "dev:server": "nodemon server/index.js",
     "dev:client": "vite",
     "build": "vite build",
