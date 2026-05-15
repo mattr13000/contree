@@ -1,0 +1,241 @@
+*, *::before, *::after {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+body {
+  background: #076324;
+  overflow: hidden;
+  font-family: Georgia, 'Times New Roman', serif;
+  color: #f0e6c8;
+  height: 100vh;
+}
+
+/* ── Screen system ─────────────────────────────────────────── */
+.screen {
+  display: none;
+  width: 100vw;
+  height: 100vh;
+  align-items: center;
+  justify-content: center;
+}
+.screen.active { display: flex; }
+#game.active   { display: block; }
+
+/* ── Panel ─────────────────────────────────────────────────── */
+.panel {
+  background: rgba(5, 40, 15, 0.88);
+  border: 1px solid rgba(184, 134, 11, 0.4);
+  border-radius: 12px;
+  padding: 48px 40px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  min-width: 340px;
+  text-align: center;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.55);
+}
+.panel.wide { min-width: 480px; }
+
+/* ── Typography ─────────────────────────────────────────────── */
+h1 {
+  font-size: 3rem;
+  letter-spacing: 0.15em;
+  color: #daa520;
+  margin-bottom: 8px;
+}
+h2 { font-size: 1.4rem; }
+
+/* ── Input ──────────────────────────────────────────────────── */
+input[type="text"] {
+  padding: 12px 16px;
+  border-radius: 6px;
+  border: 1px solid rgba(184, 134, 11, 0.4);
+  background: rgba(255, 255, 255, 0.07);
+  color: #f0e6c8;
+  font-size: 1rem;
+  font-family: inherit;
+  text-align: center;
+}
+input[type="text"]::placeholder { color: rgba(240, 230, 200, 0.4); }
+input[type="text"]:focus { outline: none; border-color: #daa520; }
+
+/* ── Buttons ────────────────────────────────────────────────── */
+button {
+  padding: 12px 24px;
+  border-radius: 6px;
+  border: none;
+  background: #b8860b;
+  color: #fff;
+  font-size: 1rem;
+  font-family: inherit;
+  cursor: pointer;
+  transition: background 0.15s, opacity 0.15s;
+}
+button:hover:not(:disabled) { background: #daa520; }
+button:disabled { opacity: 0.35; cursor: default; }
+
+button.secondary {
+  background: transparent;
+  border: 1px solid rgba(240, 230, 200, 0.3);
+  color: #f0e6c8;
+}
+button.secondary:hover:not(:disabled) { background: rgba(255, 255, 255, 0.08); }
+
+button.hidden { display: none; }
+
+.row {
+  display: flex;
+  gap: 10px;
+  justify-content: center;
+}
+
+/* ── Room list ──────────────────────────────────────────────── */
+#rooms-container {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-height: 60px;
+  max-height: 320px;
+  overflow-y: auto;
+}
+
+.room-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 16px;
+  background: rgba(255, 255, 255, 0.07);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 6px;
+}
+.room-row span { font-size: 0.95rem; }
+.room-row button { padding: 6px 14px; font-size: 0.85rem; }
+
+.empty-message {
+  color: rgba(240, 230, 200, 0.5);
+  font-style: italic;
+  padding: 16px 0;
+}
+
+.error-message {
+  color: #e07070;
+  font-size: 0.9rem;
+}
+
+/* ── Player slots ───────────────────────────────────────────── */
+#player-slots {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.slot {
+  padding: 11px 16px;
+  border-radius: 6px;
+  border: 1px dashed rgba(255, 255, 255, 0.25);
+  background: rgba(255, 255, 255, 0.04);
+  text-align: left;
+  font-size: 0.95rem;
+  color: rgba(240, 230, 200, 0.45);
+  font-style: italic;
+}
+
+.slot.filled {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  border-style: solid;
+  border-color: rgba(184, 134, 11, 0.5);
+  background: rgba(184, 134, 11, 0.12);
+  color: #f0e6c8;
+  font-style: normal;
+}
+
+.slot-badge {
+  font-size: 0.72rem;
+  color: #daa520;
+  border: 1px solid #daa520;
+  border-radius: 3px;
+  padding: 1px 5px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+/* ── Bid overlay ────────────────────────────────────────────── */
+#bid-overlay {
+  position: fixed;
+  bottom: 175px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: rgba(5, 40, 15, 0.95);
+  border: 1px solid rgba(184, 134, 11, 0.6);
+  border-radius: 12px;
+  padding: 14px 18px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  z-index: 10;
+  min-width: 400px;
+  box-shadow: 0 4px 24px rgba(0,0,0,0.6);
+}
+#bid-overlay.hidden { display: none; }
+
+#bid-current-info {
+  font-size: 0.82rem;
+  color: rgba(240, 230, 200, 0.65);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.bid-selector {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+}
+
+#bid-values {
+  display: flex;
+  gap: 4px;
+  flex-wrap: wrap;
+  justify-content: center;
+}
+
+#bid-values button {
+  padding: 5px 8px;
+  font-size: 0.82rem;
+  min-width: 40px;
+  background: rgba(255,255,255,0.08);
+  border: 1px solid rgba(255,255,255,0.15);
+}
+#bid-values button.selected { background: #b8860b; border-color: #daa520; }
+#bid-values button:disabled { opacity: 0.2; }
+#bid-values button:hover:not(:disabled):not(.selected) { background: rgba(255,255,255,0.15); }
+
+#bid-suits {
+  display: flex;
+  gap: 6px;
+}
+
+#bid-suits button {
+  padding: 5px 14px;
+  font-size: 1.1rem;
+  background: rgba(255,255,255,0.08);
+  border: 1px solid rgba(255,255,255,0.15);
+}
+#bid-suits button.selected { background: #b8860b; border-color: #daa520; }
+#bid-suits button:hover:not(:disabled):not(.selected) { background: rgba(255,255,255,0.15); }
+#bid-suits button[data-suit="Hearts"],
+#bid-suits button[data-suit="Diamonds"] { color: #f07070; }
+
+#bid-actions {
+  display: flex;
+  gap: 8px;
+}
+
+#bid-actions button { padding: 8px 18px; font-size: 0.9rem; }
+#btn-contree, #btn-surcontree { background: #7a3a8a; }
+#btn-contree:hover:not(:disabled), #btn-surcontree:hover:not(:disabled) { background: #9a4aaa; }

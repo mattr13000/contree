@@ -1,0 +1,63 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Contrée</title>
+</head>
+<body>
+
+  <div id="screen-nickname" class="screen active">
+    <div class="panel">
+      <h1>Contrée</h1>
+      <input id="input-nickname" type="text" placeholder="Votre surnom" maxlength="20" autocomplete="off" />
+      <button id="btn-enter">Entrer</button>
+    </div>
+  </div>
+
+  <div id="screen-lobby" class="screen">
+    <div class="panel">
+      <h2 id="lobby-greeting"></h2>
+      <button id="btn-create-room">Créer une partie</button>
+      <button id="btn-browse-rooms" class="secondary">Rejoindre une partie</button>
+    </div>
+  </div>
+
+  <div id="screen-room-list" class="screen">
+    <div class="panel wide">
+      <h2>Parties disponibles</h2>
+      <div id="rooms-container"></div>
+      <button id="btn-back-to-lobby" class="secondary">Retour</button>
+    </div>
+  </div>
+
+  <div id="screen-waiting" class="screen">
+    <div class="panel">
+      <h2 id="room-title"></h2>
+      <div id="player-slots"></div>
+      <div class="row">
+        <button id="btn-start" class="hidden" disabled>Démarrer</button>
+        <button id="btn-leave-room" class="secondary">Quitter</button>
+      </div>
+    </div>
+  </div>
+
+  <canvas id="game" class="screen"></canvas>
+
+  <div id="bid-overlay" class="hidden">
+    <div id="bid-current-info"></div>
+    <div class="bid-selector">
+      <div id="bid-values"></div>
+      <div id="bid-suits"></div>
+    </div>
+    <div id="bid-actions">
+      <button id="btn-pass">Passer</button>
+      <button id="btn-bid" disabled>Annoncer</button>
+      <button id="btn-contree" class="hidden">Contrée !</button>
+      <button id="btn-surcontree" class="hidden">Surcontrée !</button>
+    </div>
+  </div>
+
+  <script type="module" src="./src/main.js"></script>
+</body>
+</html>
