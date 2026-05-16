@@ -281,6 +281,8 @@ function resolveTrick(roomId) {
         bid:         { ...game.bidding.highBid, contree: game.bidding.contree },
       })
       game.phase = 'ended'
+      const r = rooms.get(roomId)
+      setTimeout(() => { if (r && r.players.length === 4) deal(r) }, 8000)
     }, 2000)
     return
   }

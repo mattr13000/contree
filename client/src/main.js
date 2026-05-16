@@ -1,7 +1,7 @@
 import { io } from 'socket.io-client'
 import { showScreen } from './router.js'
 import { initGame, applyDealt, applyBidState, applyPlayStart,
-         applyPlayState, applyYourTurn, applyTrickWon, setOnCardPlay } from './game.js'
+         applyPlayState, applyYourTurn, applyTrickWon, setOnCardPlay, state } from './game.js'
 import './style.css'
 
 const socket = io()
@@ -145,6 +145,7 @@ socket.on('room:left', () => {
 let myTeam = null
 
 socket.on('game:dealt', async data => {
+  document.getElementById('game-over-modal').classList.add('hidden')
   myTeam = data.seats.find(s => s.socketId === socket.id)?.team ?? null
   showScreen('game')
   await initGame(document.getElementById('game'), socket.id)
@@ -297,6 +298,42 @@ socket.on('play:belote',   ({ nickname, type }) => {
   // Brief console log; Step E will surface this in the UI
   console.log(`[belote] ${nickname} : ${type}`)
 })
-socket.on('game:over', _data => {
-  // Step E — scoring modal will be built here
+socket.on('game:over', ({ scores, beloteBonus, bid }) => {
+  const myTeam    = state.seats[0].team
+  const otherTeam = myTeam === 'A' ? 'B' : 'A'
+
+  const total = { A: scores.A + beloteBonus.A, B: scores.B + beloteBonus.B }
+  const myTotal    = total[myTeam]
+  const otherTotal = total[otherTeam]
+
+  const fulfilled  = scores[bid.team] >= bid.value
+  const winnerTeam = fulfilled ? bid.team : (bid.team === 'A' ? 'B' : 'A')
+  const winnerSeats = state.seats.filter(s => s.team === winnerTeam)
+  const winnerColor = winnerTeam === myTeam ? '#6ab0ff' : '#ff7070'
+
+  document.getElementById('game-over-scores').innerHTML = `
+    <div class="go-score-block">
+      <span class="go-score-label">Votre équipe</span>
+      <span class="go-score-value" style="color:#6ab0ff">${myTotal}</span>
+      <span class="go-score-pts">pts</span>
+    </div>
+    <div class="go-score-block">
+      <span class="go-score-label">Adversaires</span>
+      <span class="go-score-value" style="color:#ff7070">${otherTotal}</span>
+      <span class="go-score-pts">pts</span>
+    </div>
+  `
+
+  const n1 = `<span style="color:${winnerColor}">${winnerSeats[0]?.nickname ?? '?'}</span>`
+  const n2 = `<span style="color:${winnerColor}">${winnerSeats[1]?.nickname ?? '?'}</span>`
+  const prefix = fulfilled ? 'Contrat rempli' : 'Dedans !'
+  document.getElementById('game-over-result').innerHTML =
+    `${prefix},<br>${n1} &amp; ${n2} remportent la manche`
+
+  const bar = document.getElementById('game-over-bar')
+  bar.style.animation = 'none'
+  bar.offsetWidth
+  bar.style.animation = 'go-drain 8s linear forwards'
+
+  document.getElementById('game-over-modal').classList.remove('hidden')
 })

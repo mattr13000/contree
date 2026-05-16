@@ -4,14 +4,23 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Contrée</title>
+  <link rel="icon" type="image/png" href="/playing-cards-64.png">
 </head>
 <body>
 
   <div id="screen-nickname" class="screen active">
-    <div class="panel">
-      <h1>Contrée</h1>
-      <input id="input-nickname" type="text" placeholder="Votre surnom" maxlength="20" autocomplete="off" />
-      <button id="btn-enter">Entrer</button>
+    <div id="nickname-wrapper">
+      <div id="logo-banner">
+        <div id="logo-card-stack">
+          <div id="logo-deck"></div>
+          <div id="logo-jack"></div>
+        </div>
+        <span id="logo-title">Contrée</span>
+      </div>
+      <div class="panel">
+        <input id="input-nickname" type="text" placeholder="Votre surnom" maxlength="20" autocomplete="off" />
+        <button id="btn-enter">Entrer</button>
+      </div>
     </div>
   </div>
 
@@ -59,6 +68,14 @@
   </div>
 
   <div id="surcontree-announcement" class="hidden">Surcontré !</div>
+
+  <div id="game-over-modal" class="hidden">
+    <div id="game-over-box">
+      <div id="game-over-scores"></div>
+      <div id="game-over-result"></div>
+      <div id="game-over-bar-wrap"><div id="game-over-bar"></div></div>
+    </div>
+  </div>
 
   <script type="module" src="./src/main.js"></script>
 </body>
