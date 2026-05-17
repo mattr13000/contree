@@ -1,4 +1,5 @@
 import { showScreen } from './router.js'
+import { soundHover, soundPlay } from './soundManager.js'
 
 const CARD_W = 88
 const CARD_H = 124
@@ -74,6 +75,8 @@ export const state = {
 let onCardPlay = null
 export function setOnCardPlay(cb) { onCardPlay = cb }
 
+let hoveredCardIdx = -1
+
 // ── Entry ─────────────────────────────────────────────────────────
 export async function initGame(canvasEl, mySocketId) {
   canvas = canvasEl
@@ -103,6 +106,7 @@ function handleCanvasClick(e) {
     if (e.offsetX >= cardX && e.offsetX < cardX + CARD_W && e.offsetY >= y && e.offsetY < y + CARD_H) {
       const card = state.myHand[i]
       if (state.validCards.some(c => c.rank === card.rank && c.suit === card.suit)) {
+        soundPlay()
         state.myHand.splice(i, 1)
         state.isMyTurn  = false
         state.validCards = []
@@ -115,19 +119,27 @@ function handleCanvasClick(e) {
 }
 
 function handleCanvasMouseMove(e) {
-  if (!state.isMyTurn || !state.validCards.length) { canvas.style.cursor = 'default'; return }
+  if (!state.isMyTurn || !state.validCards.length) {
+    canvas.style.cursor = 'default'
+    hoveredCardIdx = -1
+    return
+  }
   const n = state.myHand.length
-  if (!n) { canvas.style.cursor = 'default'; return }
+  if (!n) { canvas.style.cursor = 'default'; hoveredCardIdx = -1; return }
   const y  = canvas.height - CARD_H - 24
   const x0 = handX0(n)
   let pointer = false
+  let hitIdx  = -1
   for (let i = 0; i < n; i++) {
     const cardX = x0 + i * (CARD_W + HAND_GAP)
     if (e.offsetX >= cardX && e.offsetX < cardX + CARD_W && e.offsetY >= y && e.offsetY < y + CARD_H) {
-      pointer = state.validCards.some(c => c.rank === state.myHand[i].rank && c.suit === state.myHand[i].suit)
+      const isValid = state.validCards.some(c => c.rank === state.myHand[i].rank && c.suit === state.myHand[i].suit)
+      if (isValid) { pointer = true; hitIdx = i }
       break
     }
   }
+  if (hitIdx !== -1 && hitIdx !== hoveredCardIdx) soundHover()
+  hoveredCardIdx = hitIdx
   canvas.style.cursor = pointer ? 'pointer' : 'default'
 }
 
@@ -140,12 +152,13 @@ export function applyDealt(data) {
   state.seats = [0, 1, 2, 3].map(offset => {
     const abs  = data.seats[(myIdx + offset) % 4]
     return {
-      socketId: abs.socketId,
-      nickname: abs.nickname,
-      position: ['south', 'west', 'north', 'east'][offset],
-      team:     abs.team,
-      isAlly:   abs.team === myTeam,
-      isMe:     abs.socketId === state.mySocketId,
+      socketId:  abs.socketId,
+      nickname:  abs.nickname,
+      position:  ['south', 'west', 'north', 'east'][offset],
+      team:      abs.team,
+      isAlly:    abs.team === myTeam,
+      isMe:      abs.socketId === state.mySocketId,
+      cardCount: 8,
     }
   })
 
@@ -177,6 +190,13 @@ export function applyPlayStart(data) {
 export function applyPlayState(data) {
   if (data.trump) state.trump = data.trump
   if (data.bid)   state.bid   = data.bid
+
+  const trickGrew = data.trick.length > state.pli.length
+  if (trickGrew) {
+    const lastPlayed = data.trick[data.trick.length - 1]
+    if (lastPlayed.socketId !== state.mySocketId) soundPlay()
+  }
+
   state.pli          = data.trick.map(({ rank, suit }) => ({ rank, suit }))
   state.isMyTurn     = data.currentPlayerSocketId === state.mySocketId
   state.trickMessage = null
@@ -186,6 +206,14 @@ export function applyPlayState(data) {
     tricksPlayed: data.tricksPlayed,
   }
   if (!state.isMyTurn) state.validCards = []
+
+  for (const s of state.seats) {
+    if (!s.isMe) {
+      const playedThisTrick = data.trick.some(t => t.socketId === s.socketId)
+      s.cardCount = 8 - data.tricksPlayed - (playedThisTrick ? 1 : 0)
+    }
+  }
+
   render()
 }
 
@@ -197,7 +225,13 @@ export function applyYourTurn(data) {
 export function applyTrickWon(data) {
   state.pli          = data.trick.map(({ rank, suit }) => ({ rank, suit }))
   state.trickMessage = `${data.winnerNickname} remporte le pli`
-  if (state.trickInfo) state.trickInfo.scores = data.scores
+  if (state.trickInfo) {
+    state.trickInfo.scores       = data.scores
+    state.trickInfo.tricksPlayed = data.tricksPlayed
+  }
+  for (const s of state.seats) {
+    if (!s.isMe) s.cardCount = 8 - data.tricksPlayed
+  }
   render()
 }
 
@@ -268,18 +302,19 @@ function drawSouth() {
   state.myHand.forEach(({ rank, suit }, i) => {
     const cardX   = x0 + i * (CARD_W + HAND_GAP)
     const isValid = state.isMyTurn && state.validCards.some(c => c.rank === rank && c.suit === suit)
-    drawFace(rank, suit, cardX, y)
+    const cardY   = (isValid && i === hoveredCardIdx) ? y - 8 : y
+    drawFace(rank, suit, cardX, cardY)
     if (state.isMyTurn && !isValid) {
       ctx.save()
       ctx.fillStyle = 'rgba(0,0,0,0.45)'
-      ctx.fillRect(cardX, y, CARD_W, CARD_H)
+      ctx.fillRect(cardX, cardY, CARD_W, CARD_H)
       ctx.restore()
     }
     if (isValid) {
       ctx.save()
       ctx.strokeStyle = '#daa520'
       ctx.lineWidth   = 3
-      ctx.strokeRect(cardX, y, CARD_W, CARD_H)
+      ctx.strokeRect(cardX, cardY, CARD_W, CARD_H)
       ctx.restore()
     }
   })
@@ -289,25 +324,29 @@ function drawSouth() {
 
 // ── North — face-down hand ────────────────────────────────────────
 function drawNorth() {
-  const { nickname, isAlly } = seat('north')
+  const s = seat('north')
+  const { nickname, isAlly } = s
+  const n  = s.cardCount ?? 8
   const y  = 24
-  const x0 = handX0()
+  const x0 = handX0(n)
 
-  for (let i = 0; i < 8; i++) drawBack(x0 + i * (CARD_W + HAND_GAP), y)
+  for (let i = 0; i < n; i++) drawBack(x0 + i * (CARD_W + HAND_GAP), y)
 
   drawName(nickname, cx(), y + CARD_H + 20, isAlly)
 }
 
 // ── West — rotated 90° CW (card appears CARD_H wide × CARD_W tall) ─
 function drawWest() {
-  const { nickname, isAlly } = seat('west')
+  const s = seat('west')
+  const { nickname, isAlly } = s
+  const n      = s.cardCount ?? 8
   const rotW   = CARD_H   // 124px wide on screen
   const rotH   = CARD_W   // 88px tall on screen
-  const totalH = 8 * rotH + 7 * HAND_GAP
+  const totalH = n * rotH + Math.max(0, n - 1) * HAND_GAP
   const cardCX = 20 + rotW / 2
   const y0     = (canvas.height - totalH) / 2
 
-  for (let i = 0; i < 8; i++) {
+  for (let i = 0; i < n; i++) {
     drawBackRotated(cardCX, y0 + i * (rotH + HAND_GAP) + rotH / 2, Math.PI / 2)
   }
 
@@ -316,14 +355,16 @@ function drawWest() {
 
 // ── East — rotated 90° CCW ────────────────────────────────────────
 function drawEast() {
-  const { nickname, isAlly } = seat('east')
+  const s = seat('east')
+  const { nickname, isAlly } = s
+  const n      = s.cardCount ?? 8
   const rotW   = CARD_H
   const rotH   = CARD_W
-  const totalH = 8 * rotH + 7 * HAND_GAP
+  const totalH = n * rotH + Math.max(0, n - 1) * HAND_GAP
   const cardCX = canvas.width - 20 - rotW / 2
   const y0     = (canvas.height - totalH) / 2
 
-  for (let i = 0; i < 8; i++) {
+  for (let i = 0; i < n; i++) {
     drawBackRotated(cardCX, y0 + i * (rotH + HAND_GAP) + rotH / 2, -Math.PI / 2)
   }
 
@@ -441,7 +482,7 @@ function drawTrickInfo() {
   ctx.fillStyle    = 'rgba(240,230,200,0.55)'
   ctx.textAlign    = 'left'
   ctx.textBaseline = 'top'
-  ctx.fillText(`Plis : ${tricksPlayed}/8`,    20, 20)
+  ctx.fillText(`Plis : ${tricksPlayed + 1}/8`, 20, 20)
   ctx.fillText(`Éq. A : ${scores.A} pts`,     20, 40)
   ctx.fillText(`Éq. B : ${scores.B} pts`,     20, 60)
   ctx.restore()

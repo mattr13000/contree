@@ -400,6 +400,93 @@ button.hidden { display: none; }
   to   { width: 0%; }
 }
 
+/* ── Score panel (top-right, wide screens) ───────────────────── */
+#score-panel {
+  position: fixed;
+  top: 16px;
+  right: 16px;
+  background: rgba(0, 40, 40, 0.88);
+  border: 1px solid rgba(184, 134, 11, 0.4);
+  border-radius: 10px;
+  padding: 10px 12px;
+  z-index: 50;
+  min-width: 190px;
+  max-height: 360px;
+  overflow-y: auto;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.5);
+  display: none;
+}
+@media (min-width: 768px) {
+  #score-panel:not(.hidden) { display: block; }
+}
+
+/* ── Score button (top-right, narrow screens) ────────────────── */
+#score-btn {
+  position: fixed;
+  top: 16px;
+  right: 16px;
+  padding: 6px 14px;
+  font-size: 0.8rem;
+  z-index: 50;
+  display: none;
+}
+@media (max-width: 767px) {
+  #score-btn:not(.hidden) { display: block; }
+}
+
+/* ── Score table (used in panel and modal) ───────────────────── */
+.score-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+.score-table th {
+  font-size: 0.70rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  padding: 0 8px 6px;
+  text-align: center;
+  border-bottom: 1px solid rgba(184, 134, 11, 0.45);
+}
+.score-table tbody td {
+  font-size: 0.82rem;
+  padding: 2px 8px;
+  text-align: center;
+  color: rgba(240, 230, 200, 0.75);
+}
+.score-table tfoot td {
+  font-size: 0.95rem;
+  font-weight: bold;
+  color: #daa520;
+  padding: 6px 8px 0;
+  text-align: center;
+  border-top: 1px solid rgba(184, 134, 11, 0.45);
+}
+
+/* ── Score modal ─────────────────────────────────────────────── */
+#score-modal {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.55);
+  z-index: 300;
+}
+#score-modal.hidden { display: none; }
+
+#score-modal-box {
+  background: rgba(0, 40, 40, 0.97);
+  border: 1px solid rgba(184, 134, 11, 0.6);
+  border-radius: 12px;
+  padding: 24px 32px;
+  min-width: 260px;
+  text-align: center;
+  box-shadow: 0 8px 40px rgba(0, 0, 0, 0.75);
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
 @keyframes surcontree-slam {
   0%   { transform: translate(150vw, -50%) rotate(20deg) scale(1.2); opacity: 0; }
   65%  { transform: translate(-50%, -50%) rotate(-6deg) scale(0.95); opacity: 1; }

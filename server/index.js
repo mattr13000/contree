@@ -12,7 +12,6 @@ const isDev      = process.env.NODE_ENV !== 'production'
 
 const io = new Server(httpServer, isDev ? { cors: { origin: '*' } } : {})
 
-app.use('/Cards', express.static(join(__dirname, '../Cards')))
 if (!isDev) {
   app.use(express.static(join(__dirname, '../dist')))
   app.get('*', (req, res) => res.sendFile(join(__dirname, '../dist/index.html')))
@@ -199,6 +198,7 @@ function bidWon(roomId) {
     trick:            [],
     tricksPlayed:     0,
     scores:           { A: 0, B: 0 },
+    tricksWon:        { A: 0, B: 0 },
     beloteHolder: beloteEntry ? {
       socketId: beloteEntry[0],
       team:     game.seats.find(s => s.socketId === beloteEntry[0])?.team,
@@ -259,7 +259,8 @@ function resolveTrick(roomId) {
   const isLast = trickState.tricksPlayed === 8
   if (isLast) pts += 10  // dix de der
 
-  trickState.scores[winnerSeat.team] += pts
+  trickState.scores[winnerSeat.team]    += pts
+  trickState.tricksWon[winnerSeat.team] += 1
 
   io.to(roomId).emit('trick:won', {
     winnerSocketId: winner.socketId,
@@ -276,9 +277,10 @@ function resolveTrick(roomId) {
 
     setTimeout(() => {
       io.to(roomId).emit('game:over', {
-        scores:      trickState.scores,
+        scores:     trickState.scores,
+        tricksWon:  trickState.tricksWon,
         beloteBonus,
-        bid:         { ...game.bidding.highBid, contree: game.bidding.contree },
+        bid:        { ...game.bidding.highBid, contree: game.bidding.contree },
       })
       game.phase = 'ended'
       const r = rooms.get(roomId)

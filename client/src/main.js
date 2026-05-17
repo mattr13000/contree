@@ -121,6 +121,10 @@ function renderWaiting(room, isCreator) {
 }
 
 socket.on('room:joined', ({ room, isCreator }) => {
+  gameScores     = []
+  scoreTeamNames = { my: [], opp: [] }
+  document.getElementById('score-panel').classList.add('hidden')
+  document.getElementById('score-btn').classList.add('hidden')
   renderWaiting(room, isCreator)
   showScreen('screen-waiting')
 })
@@ -138,15 +142,77 @@ document.getElementById('btn-leave-room').addEventListener('click', () => {
 })
 
 socket.on('room:left', () => {
+  document.getElementById('score-panel').classList.add('hidden')
+  document.getElementById('score-btn').classList.add('hidden')
   showScreen('screen-lobby')
 })
 
 // ── Game ──────────────────────────────────────────────────────────
-let myTeam = null
+let myTeam         = null
+let gameScores     = []
+let scoreTeamNames = { my: [], opp: [] }
+
+// Contract scoring per official French Contrée rules
+function computeGameScore(scores, tricksWon, beloteBonus, bid) {
+  const bTeam = bid.team
+  const oTeam = bTeam === 'A' ? 'B' : 'A'
+  const mult  = bid.contree === 'surcontree' ? 4 : bid.contree === 'contree' ? 2 : 1
+
+  const bCardTotal = scores[bTeam] + beloteBonus[bTeam]
+  const fulfilled  = bid.value === 'Capot'
+    ? tricksWon[oTeam] === 0   // Capot = all 8 tricks won, opponent got 0 tricks
+    : bCardTotal >= bid.value
+
+  const contractValue = (bid.value === 'Capot' ? 250 : bid.value) * mult
+
+  const result = { A: 0, B: 0 }
+  if (fulfilled) {
+    // Bidding team scores exactly their contract value (excess card pts discarded)
+    result[bTeam] = contractValue + beloteBonus[bTeam]
+    result[oTeam] = beloteBonus[oTeam]
+  } else {
+    // Chute: bidding team 0, opponents get fixed 160 × multiplier
+    result[bTeam] = beloteBonus[bTeam]
+    result[oTeam] = 160 * mult + beloteBonus[oTeam]
+  }
+  return { result, fulfilled }
+}
+
+function buildScoreTableHTML() {
+  const myNames  = scoreTeamNames.my.join(' & ')
+  const oppNames = scoreTeamNames.opp.join(' & ')
+  const myTotal  = gameScores.reduce((s, g) => s + g.my,  0)
+  const oppTotal = gameScores.reduce((s, g) => s + g.opp, 0)
+  const rows = gameScores.length
+    ? gameScores.map(g => `<tr><td>${g.my}</td><td>${g.opp}</td></tr>`).join('')
+    : `<tr><td colspan="2" style="color:rgba(240,230,200,0.3);font-style:italic;padding:4px 0">—</td></tr>`
+  return `<table class="score-table">
+    <thead><tr>
+      <th style="color:#6ab0ff">${myNames || '…'}</th>
+      <th style="color:#ff7070">${oppNames || '…'}</th>
+    </tr></thead>
+    <tbody>${rows}</tbody>
+    <tfoot><tr><td>${myTotal}</td><td>${oppTotal}</td></tr></tfoot>
+  </table>`
+}
+
+function updateScoreUI() {
+  const html = buildScoreTableHTML()
+  document.getElementById('score-panel').innerHTML = html
+  document.getElementById('score-modal-content').innerHTML = html
+}
 
 socket.on('game:dealt', async data => {
   document.getElementById('game-over-modal').classList.add('hidden')
   myTeam = data.seats.find(s => s.socketId === socket.id)?.team ?? null
+  const ot = myTeam === 'A' ? 'B' : 'A'
+  scoreTeamNames = {
+    my:  data.seats.filter(s => s.team === myTeam).map(s => s.nickname),
+    opp: data.seats.filter(s => s.team === ot).map(s => s.nickname),
+  }
+  document.getElementById('score-panel').classList.remove('hidden')
+  document.getElementById('score-btn').classList.remove('hidden')
+  updateScoreUI()
   showScreen('game')
   await initGame(document.getElementById('game'), socket.id)
   applyDealt(data)
@@ -295,10 +361,9 @@ socket.on('play:state',    data => applyPlayState(data))
 socket.on('play:your-turn', data => applyYourTurn(data))
 socket.on('trick:won',     data => applyTrickWon(data))
 socket.on('play:belote',   ({ nickname, type }) => {
-  // Brief console log; Step E will surface this in the UI
   console.log(`[belote] ${nickname} : ${type}`)
 })
-socket.on('game:over', ({ scores, beloteBonus, bid }) => {
+socket.on('game:over', ({ scores, tricksWon, beloteBonus, bid }) => {
   const myTeam    = state.seats[0].team
   const otherTeam = myTeam === 'A' ? 'B' : 'A'
 
@@ -306,8 +371,8 @@ socket.on('game:over', ({ scores, beloteBonus, bid }) => {
   const myTotal    = total[myTeam]
   const otherTotal = total[otherTeam]
 
-  const fulfilled  = scores[bid.team] >= bid.value
-  const winnerTeam = fulfilled ? bid.team : (bid.team === 'A' ? 'B' : 'A')
+  const { result: gameResult, fulfilled } = computeGameScore(scores, tricksWon, beloteBonus, bid)
+  const winnerTeam  = fulfilled ? bid.team : (bid.team === 'A' ? 'B' : 'A')
   const winnerSeats = state.seats.filter(s => s.team === winnerTeam)
   const winnerColor = winnerTeam === myTeam ? '#6ab0ff' : '#ff7070'
 
@@ -336,4 +401,20 @@ socket.on('game:over', ({ scores, beloteBonus, bid }) => {
   bar.style.animation = 'go-drain 8s linear forwards'
 
   document.getElementById('game-over-modal').classList.remove('hidden')
+
+  gameScores.push({ my: gameResult[myTeam], opp: gameResult[otherTeam] })
+  updateScoreUI()
+})
+
+// ── Score button / modal ──────────────────────────────────────────
+const scoreModal = document.getElementById('score-modal')
+
+document.getElementById('score-btn').addEventListener('click', () => {
+  scoreModal.classList.remove('hidden')
+})
+document.getElementById('score-modal-ok').addEventListener('click', () => {
+  scoreModal.classList.add('hidden')
+})
+scoreModal.addEventListener('click', e => {
+  if (e.target === scoreModal) scoreModal.classList.add('hidden')
 })
