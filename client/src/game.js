@@ -13,6 +13,7 @@ let cw        = BASE_W
 let ch        = BASE_H
 let hgap      = BASE_GAP
 let fanSpread = BASE_FAN_SPREAD
+let landscape = true
 
 const SPRITE = {
   'A':  { sx: 0,   sy: 0   },
@@ -112,9 +113,10 @@ function getScale() {
 
 // Top edge of the south hand on canvas
 function southY() {
-  if (scale < 1 && state.isMyTurn) return canvas.height - ch - 16  // fully visible during turn
+  // Only pop fully visible during the play phase (not bid phase)
+  if (scale < 1 && state.isMyTurn && state.trickInfo !== null) return canvas.height - ch - 16
   return scale < 1
-    ? canvas.height - Math.round(ch * 0.55)   // ~55% visible at rest
+    ? canvas.height - Math.round(ch * 0.55)
     : canvas.height - ch - 24
 }
 
@@ -296,6 +298,7 @@ export function applyTrickWon(data) {
 function resize() {
   canvas.width  = window.innerWidth
   canvas.height = window.innerHeight
+  landscape = window.innerWidth > window.innerHeight
   scale     = getScale()
   cw        = Math.round(BASE_W * scale)
   ch        = Math.round(BASE_H * scale)
@@ -487,6 +490,24 @@ function drawBidHUD() {
                 : bid?.contree === 'contree'    ? ' CONTRÉ' : ''
   const bidText = bid ? `${bid.value} ${sym}${contree}` : '—'
 
+  // Mobile landscape play phase: compact label at top-right
+  if (scale < 1 && landscape && state.trickInfo !== null) {
+    if (!bid) return
+    const fs = Math.round(26 * Math.max(0.8, scale))
+    ctx.save()
+    ctx.font         = `bold ${fs}px Georgia, serif`
+    ctx.textAlign    = 'right'
+    ctx.textBaseline = 'top'
+    ctx.lineJoin     = 'round'
+    ctx.lineWidth    = 2
+    ctx.strokeStyle  = 'rgba(0,0,0,0.75)'
+    ctx.strokeText(bidText, canvas.width - 14, 14)
+    ctx.fillStyle    = 'rgba(240,230,200,0.90)'
+    ctx.fillText(bidText, canvas.width - 14, 14)
+    ctx.restore()
+    return
+  }
+
   let turnText  = null
   let turnColor = 'rgba(240,230,200,0.65)'
   if (state.trickInfo) {
@@ -545,23 +566,34 @@ function drawBidHUD() {
 function drawTrickInfo() {
   if (!state.trickInfo) return
   const { scores, tricksPlayed } = state.trickInfo
-  const fs  = Math.round(13 * Math.max(0.8, scale))
-  const lh  = Math.round(20 * Math.max(0.8, scale))
+  const isMobile = scale < 1
+  const fs = Math.round((isMobile ? 26 : 13) * Math.max(0.8, scale))
+  const lh = Math.round((isMobile ? 40 : 20) * Math.max(0.8, scale))
+
+  const textLines = [
+    `Plis : ${tricksPlayed + 1}/8`,
+    `Éq. A : ${scores.A} pts`,
+    `Éq. B : ${scores.B} pts`,
+  ]
+  const PAD_X = 10, PAD_Y = 8, MARGIN = 8
 
   ctx.save()
-  ctx.font         = `${fs}px Georgia, serif`
-  ctx.textAlign    = 'left'
-  ctx.textBaseline = 'top'
+  ctx.font      = `${fs}px Georgia, serif`
+  ctx.textAlign = 'left'
+
+  const maxW = Math.max(...textLines.map(t => ctx.measureText(t).width))
+  ctx.fillStyle = 'rgba(0,0,0,0.30)'
+  ctx.fillRect(MARGIN, MARGIN, maxW + PAD_X * 2, lh * 3 + PAD_Y * 2)
+
+  ctx.textBaseline = 'middle'
   ctx.lineJoin     = 'round'
   ctx.lineWidth    = 2
   ctx.strokeStyle  = 'rgba(0,0,0,0.75)'
-  const lines = [
-    { text: `Plis : ${tricksPlayed + 1}/8`, y: 16 },
-    { text: `Éq. A : ${scores.A} pts`,      y: 16 + lh },
-    { text: `Éq. B : ${scores.B} pts`,      y: 16 + lh * 2 },
-  ]
-  for (const l of lines) ctx.strokeText(l.text, 16, l.y)
+  const entries = textLines.map((text, i) => ({
+    text, x: MARGIN + PAD_X, y: MARGIN + PAD_Y + lh * i + lh / 2,
+  }))
+  for (const e of entries) ctx.strokeText(e.text, e.x, e.y)
   ctx.fillStyle = '#ffffff'
-  for (const l of lines) ctx.fillText(l.text, 16, l.y)
+  for (const e of entries) ctx.fillText(e.text, e.x, e.y)
   ctx.restore()
 }
