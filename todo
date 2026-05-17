@@ -3,3 +3,30 @@ surcotré should block bidding & start the game after it resolves, with a 1.5s p
 we tried app on deploy, app crashed at pli 7/8
 
 add name of biggest better below current bet top right
+
+Add a view of the last played trick in-game.
+
+Name during the bidding phase is bugged (spotted on the 2nd round, I think the first round works fine). done not tested
+
+Show the lead player with a token above their name. done not tested
+
+Show whose turn it is with a golden frame around their nickname. done not tested
+
+Highlight trump cards in the hand.
+
+Show what others are doing during the betting phase (display style for doubled/redoubled: 80 Hearts (Name)). done not tested
+
+Modal prompt "contrer? oui / Non" for contré surcontré capot. done not tested
+
+Make the highest bidder stand out (or make the highest bid larger).
+
+Turn timer next to the name.
+
+show latest action player did below each player's name (ex : pass, 80 heart, ect) done not tested
+
+End of game: use "gagnent" (plural) instead of "gagne" (singular).
+
+total is global, not room specific
+
+contrée should reset turn count (counts as a bid, need a full pass to start game) done not tested
+moins de 13

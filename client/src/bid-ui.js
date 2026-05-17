@@ -16,6 +16,23 @@ const btnBid        = document.getElementById('btn-bid')
 const btnContree    = document.getElementById('btn-contree')
 const btnSurcontree = document.getElementById('btn-surcontree')
 
+const contrerModal   = document.getElementById('contrer-modal')
+const contrerModalBid = document.getElementById('contrer-modal-bid')
+const contrerModalQ  = document.getElementById('contrer-modal-question')
+let   contrerModalType = null  // 'contree' | 'surcontree'
+
+function hideContrerModal() {
+  contrerModal.classList.add('hidden')
+  contrerModalType = null
+}
+
+function showContrerModal(question, bidLabel, type) {
+  contrerModalQ.textContent   = question
+  contrerModalBid.textContent = bidLabel
+  contrerModalType = type
+  contrerModal.classList.remove('hidden')
+}
+
 function refreshBidUI() {
   const myTeam = currentMyTeam
   const high   = currentBidState?.highBid
@@ -81,19 +98,52 @@ export function initBidUI({ onPass, onBid, onContree, onSurcontree }) {
   })
   btnContree.addEventListener('click', () => { onContree(); hideBidOverlay() })
   btnSurcontree.addEventListener('click', () => { onSurcontree(); hideBidOverlay() })
+
+  // Contrer/surcontrer modal buttons
+  document.getElementById('btn-contrer-oui').addEventListener('click', () => {
+    const type = contrerModalType
+    hideContrerModal()
+    if (type === 'contree')    { onContree();    hideBidOverlay() }
+    else if (type === 'surcontree') { onSurcontree(); hideBidOverlay() }
+  })
+
+  document.getElementById('btn-contrer-non').addEventListener('click', () => {
+    hideContrerModal()
+    refreshBidUI()
+    bidOverlay.classList.remove('hidden')
+  })
 }
 
 export function hideBidOverlay() {
   bidOverlay.classList.add('hidden')
+  hideContrerModal()
 }
 
 export function applyBidUIState(data, socketId, myTeam) {
   currentBidState = data
   currentMyTeam   = myTeam
-  if (data.currentBidderSocketId === socketId) {
+
+  if (data.currentBidderSocketId !== socketId) {
+    hideBidOverlay()
+    return
+  }
+
+  const high          = data.highBid
+  const iAmHighBidder = high?.team === myTeam
+  const canContree    = !!(high && !iAmHighBidder && data.contree === false)
+  const canSurcontree = !!(high &&  iAmHighBidder && data.contree === 'contree')
+
+  if (canSurcontree) {
+    hideBidOverlay()
+    const sym = SUIT_LABELS[high.suit] ?? high.suit
+    showContrerModal('Surcontrer ?', `${high.value} ${sym} — CONTRÉ`, 'surcontree')
+  } else if (canContree) {
+    hideBidOverlay()
+    const sym = SUIT_LABELS[high.suit] ?? high.suit
+    showContrerModal('Contrer ?', `${high.value} ${sym}`, 'contree')
+  } else {
+    hideContrerModal()
     refreshBidUI()
     bidOverlay.classList.remove('hidden')
-  } else {
-    hideBidOverlay()
   }
 }

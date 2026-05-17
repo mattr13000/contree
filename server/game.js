@@ -163,7 +163,7 @@ export function deal(room) {
   emitBidState(room.id)
 }
 
-export function emitBidState(roomId) {
+export function emitBidState(roomId, lastAction = null) {
   const game = games.get(roomId)
   if (!game) return
   const { bidding, seats } = game
@@ -171,6 +171,7 @@ export function emitBidState(roomId) {
     currentBidderSocketId: seats[bidding.currentBidderIdx].socketId,
     highBid:               bidding.highBid,
     contree:               bidding.contree,
+    lastAction,
   })
 }
 
@@ -222,6 +223,7 @@ export function emitPlayState(roomId) {
 
   io.to(roomId).emit('play:state', {
     currentPlayerSocketId: current.socketId,
+    trickLeaderSocketId:   seats[trickState.trickLeaderIdx].socketId,
     trick:        trickState.trick,
     tricksPlayed: trickState.tricksPlayed,
     scores:       trickState.scores,

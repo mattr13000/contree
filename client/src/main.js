@@ -171,12 +171,44 @@ socket.on('game:dealt', async data => {
 })
 
 // ── Bidding ───────────────────────────────────────────────────────
+const SUIT_SYMBOLS = { Hearts: '♥', Diamonds: '♦', Clubs: '♣', Spades: '♠' }
+let bidActionTimer = null
+
+function showBidAction(action) {
+  const el = document.getElementById('bid-action-announcement')
+  if (action.type === 'bid') {
+    const sym      = SUIT_SYMBOLS[action.suit] ?? action.suit
+    const suitColor = (action.suit === 'Hearts' || action.suit === 'Diamonds') ? '#f07070' : '#f0e6c8'
+    el.innerHTML   = `${action.value} <span style="color:${suitColor}">${sym}</span> <span style="font-size:0.6em;opacity:0.75">(${escapeHtml(action.nickname)})</span>`
+    el.style.color = '#f0e6c8'
+  } else if (action.type === 'pass') {
+    el.innerHTML   = `Passe <span style="font-size:0.6em;opacity:0.75">(${escapeHtml(action.nickname)})</span>`
+    el.style.color = 'rgba(210,210,210,0.85)'
+  } else {
+    return  // contree has its own slam animation; just let the timer delay the bid UI
+  }
+  el.classList.remove('hidden')
+  el.style.animation = 'none'
+  el.offsetHeight  // force reflow to restart animation
+  el.style.animation = ''
+  clearTimeout(el._hideTimer)
+  el._hideTimer = setTimeout(() => el.classList.add('hidden'), 1500)
+}
+
 socket.on('bid:state', data => {
   applyBidState(data)
-  applyBidUIState(data, socket.id, myTeam)
+  if (data.lastAction) {
+    clearTimeout(bidActionTimer)
+    showBidAction(data.lastAction)
+    bidActionTimer = setTimeout(() => applyBidUIState(data, socket.id, myTeam), 1500)
+  } else {
+    applyBidUIState(data, socket.id, myTeam)
+  }
 })
 
 socket.on('game:play-start', data => {
+  clearTimeout(bidActionTimer)
+  document.getElementById('bid-action-announcement').classList.add('hidden')
   hideBidOverlay()
   document.getElementById('surcontree-announcement').classList.add('hidden')
   document.getElementById('contree-announcement').classList.add('hidden')
