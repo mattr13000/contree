@@ -9,7 +9,9 @@
       "Bash(Get-Content \"C:\\\\Users\\\\ROLLAND\\\\Documents\\\\www\\\\contree\\\\server\\\\index.js\")",
       "PowerShell(Get-Content *)",
       "PowerShell(Stop-Process *)",
-      "PowerShell(Test-Path *)"
+      "PowerShell(Test-Path *)",
+      "Bash(node server/index.js)",
+      "Bash(node *)"
     ]
   }
 }
