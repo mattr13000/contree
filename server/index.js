@@ -188,7 +188,7 @@ io.on('connection', socket => {
     bidding.passCount = 0
     bidding.contree   = false
     bidding.currentBidderIdx = (bidding.currentBidderIdx + 1) % 4
-    emitBidState(player.roomId)
+    emitBidState(player.roomId, { type: 'bid', socketId: socket.id, nickname: bidding.highBid.bidderNickname, value, suit })
   })
 
   // ── bid:pass ──────────────────────────────────────────────────
@@ -201,12 +201,13 @@ io.on('connection', socket => {
     if (seats[bidding.currentBidderIdx].socketId !== socket.id) return
     if (bidding.contree === 'surcontree') return
 
+    const passerNickname = seats[bidding.currentBidderIdx].nickname
     bidding.passCount++
     bidding.currentBidderIdx = (bidding.currentBidderIdx + 1) % 4
 
     if (!bidding.highBid && bidding.passCount >= 4) { deal(rooms.get(player.roomId)); return }
     if (bidding.highBid  && bidding.passCount >= 3) { bidWon(player.roomId); return }
-    emitBidState(player.roomId)
+    emitBidState(player.roomId, { type: 'pass', socketId: socket.id, nickname: passerNickname })
   })
 
   // ── bid:contree ───────────────────────────────────────────────
@@ -221,13 +222,13 @@ io.on('connection', socket => {
     const myTeam = seats.find(s => s.socketId === socket.id).team
     if (bidding.highBid.team === myTeam) return
 
-    bidding.contree = 'contree'
-    bidding.passCount++
+    const contreeurNickname = seats.find(s => s.socketId === socket.id)?.nickname
+    bidding.contree   = 'contree'
+    bidding.passCount = 0  // counts as a bid: need a full 3-pass round after contrée
     bidding.currentBidderIdx = (bidding.currentBidderIdx + 1) % 4
 
     io.to(player.roomId).emit('bid:contree-announced')
-    if (bidding.passCount >= 3) { bidWon(player.roomId); return }
-    emitBidState(player.roomId)
+    emitBidState(player.roomId, { type: 'contree', socketId: socket.id, nickname: contreeurNickname })
   })
 
   // ── bid:surcontree ────────────────────────────────────────────

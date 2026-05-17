@@ -71,6 +71,7 @@ export const state = {
   pli:              [],
   bid:              null,
   bidderNickname:   null,
+  bidderSocketId:   null,
   highBidderNickname: null,
   trump:         null,
   isMyTurn:      false,
@@ -209,21 +210,27 @@ export function applyDealt(data) {
   state.seats = [0, 1, 2, 3].map(offset => {
     const abs = data.seats[(myIdx + offset) % 4]
     return {
-      socketId:  abs.socketId,
-      nickname:  abs.nickname,
-      position:  ['south', 'west', 'north', 'east'][offset],
-      team:      abs.team,
-      isAlly:    abs.team === myTeam,
-      isMe:      abs.socketId === state.mySocketId,
-      cardCount: 8,
+      socketId:      abs.socketId,
+      nickname:      abs.nickname,
+      position:      ['south', 'west', 'north', 'east'][offset],
+      team:          abs.team,
+      isAlly:        abs.team === myTeam,
+      isMe:          abs.socketId === state.mySocketId,
+      cardCount:     8,
+      lastBidAction: null,
     }
   })
 
   state.myHand             = sortHand(data.myHand)
   state.pli                = []
   state.bid                = null
-  state.bidderNickname     = null
   state.highBidderNickname = null
+  state.trickInfo          = null
+  // Re-resolve bidderNickname from fresh seats in case bid:state arrived before this
+  // event (round 1: bid:state can arrive during async loadAssets, before applyDealt runs).
+  state.bidderNickname = state.bidderSocketId
+    ? (state.seats.find(s => s.socketId === state.bidderSocketId)?.nickname ?? null)
+    : null
   render()
 }
 
@@ -233,7 +240,12 @@ export function applyBidState(data) {
     : null
   state.highBidderNickname = data.highBid?.bidderNickname ?? null
   const bidder = state.seats.find(s => s.socketId === data.currentBidderSocketId)
-  state.bidderNickname = bidder?.nickname ?? null
+  state.bidderNickname  = bidder?.nickname ?? null
+  state.bidderSocketId  = data.currentBidderSocketId
+  if (data.lastAction?.socketId) {
+    const actor = state.seats.find(s => s.socketId === data.lastAction.socketId)
+    if (actor) actor.lastBidAction = data.lastAction
+  }
   render()
 }
 
@@ -241,6 +253,7 @@ export function applyPlayStart(data) {
   state.bid            = data.bid
   state.trump          = data.trump
   state.bidderNickname = null
+  state.bidderSocketId = null
   state.myHand         = sortHand(state.myHand, data.trump)
   render()
 }
@@ -260,6 +273,7 @@ export function applyPlayState(data) {
   state.trickMessage = null
   state.trickInfo    = {
     currentPlayerSocketId: data.currentPlayerSocketId,
+    trickLeaderSocketId:   data.trickLeaderSocketId,
     scores:       data.scores,
     tricksPlayed: data.tricksPlayed,
   }
@@ -286,8 +300,9 @@ export function applyTrickWon(data) {
   state.pli          = data.trick.map(({ rank, suit }) => ({ rank, suit }))
   state.trickMessage = `${data.winnerNickname} remporte le pli`
   if (state.trickInfo) {
-    state.trickInfo.scores       = data.scores
-    state.trickInfo.tricksPlayed = data.tricksPlayed
+    state.trickInfo.scores              = data.scores
+    state.trickInfo.tricksPlayed        = data.tricksPlayed
+    state.trickInfo.trickLeaderSocketId = data.winnerSocketId
   }
   for (const s of state.seats) {
     if (!s.isMe) s.cardCount = 8 - data.tricksPlayed
@@ -339,11 +354,84 @@ function drawBackRotated(px, py, angle) {
   ctx.restore()
 }
 
-function drawName(text, x, y, isAlly, align = 'center') {
+function isTurnSeat(socketId) {
+  if (state.trickInfo)      return state.trickInfo.currentPlayerSocketId === socketId
+  if (state.bidderSocketId) return state.bidderSocketId === socketId
+  return false
+}
+
+// Draw the last bid action label below a player's name (bidding phase only).
+const BID_ACTION_SUIT_SYMS = { Hearts: '♥', Diamonds: '♦', Clubs: '♣', Spades: '♠' }
+function drawSeatBidAction(action, x, y, align) {
+  if (!action || state.trickInfo !== null) return
+  const fs = Math.round(10 * Math.max(0.8, scale))
+  let label, color
+  if (action.type === 'bid') {
+    const sym = BID_ACTION_SUIT_SYMS[action.suit] ?? action.suit
+    label = `${action.value} ${sym}`
+    color = (action.suit === 'Hearts' || action.suit === 'Diamonds') ? '#d07070' : 'rgba(240,230,200,0.75)'
+  } else if (action.type === 'pass') {
+    label = 'Passe'
+    color = 'rgba(185,185,185,0.8)'
+  } else if (action.type === 'contree') {
+    label = 'Contré'
+    color = '#c070d0'
+  } else {
+    return
+  }
   ctx.save()
-  ctx.font         = `bold ${Math.round(15 * Math.max(0.8, scale))}px Georgia, serif`
+  ctx.font         = `${fs}px Georgia, serif`
+  ctx.textAlign    = align
+  ctx.textBaseline = 'top'
+  ctx.lineJoin     = 'round'
+  ctx.lineWidth    = 2
+  ctx.strokeStyle  = 'rgba(0,0,0,0.7)'
+  ctx.strokeText(label, x, y)
+  ctx.fillStyle    = color
+  ctx.fillText(label, x, y)
+  ctx.restore()
+}
+
+function drawName(text, x, y, isAlly, align = 'center', isCurrentTurn = false, isLeader = false) {
+  ctx.save()
+  const fs = Math.round(15 * Math.max(0.8, scale))
+  ctx.font         = `bold ${fs}px Georgia, serif`
   ctx.textAlign    = align
   ctx.textBaseline = 'middle'
+
+  if (isCurrentTurn || isLeader) {
+    const textW = ctx.measureText(text).width
+
+    if (isCurrentTurn) {
+      const padX = 6, padY = 3
+      const rectH = fs * 1.4
+      const rectX = align === 'center' ? x - textW / 2 - padX
+                  : align === 'left'   ? x - padX
+                  :                      x - textW - padX
+      ctx.strokeStyle = '#daa520'
+      ctx.lineWidth   = 2
+      ctx.strokeRect(rectX, y - rectH / 2, textW + padX * 2, rectH)
+    }
+
+    if (isLeader) {
+      const tokenFS = Math.round(10 * Math.max(0.8, scale))
+      const tokenCX = align === 'center' ? x
+                    : align === 'left'   ? x + textW / 2
+                    :                      x - textW / 2
+      const tokenY  = y - fs * 0.7 - tokenFS * 0.5 - 2
+      ctx.font         = `${tokenFS}px sans-serif`
+      ctx.textAlign    = 'center'
+      ctx.textBaseline = 'middle'
+      ctx.lineWidth    = 2
+      ctx.strokeStyle  = 'rgba(0,0,0,0.75)'
+      ctx.strokeText('★', tokenCX, tokenY)
+      ctx.fillStyle    = '#ffd700'
+      ctx.fillText('★', tokenCX, tokenY)
+      ctx.font      = `bold ${fs}px Georgia, serif`
+      ctx.textAlign = align
+    }
+  }
+
   ctx.lineJoin     = 'round'
   ctx.lineWidth    = 3
   ctx.strokeStyle  = 'rgba(0,0,0,0.75)'
@@ -355,7 +443,8 @@ function drawName(text, x, y, isAlly, align = 'center') {
 
 // ── South — face-up hand ──────────────────────────────────────────
 function drawSouth() {
-  const { nickname, isAlly } = seat('south')
+  const s = seat('south')
+  const { nickname, isAlly, socketId } = s
   const n  = state.myHand.length
   const y  = southY()
   const x0 = handX0(n)
@@ -380,13 +469,17 @@ function drawSouth() {
     }
   })
 
-  drawName(nickname, cx(), y - 14, isAlly)
+  const isLeaderS  = !!(state.trickInfo?.trickLeaderSocketId === socketId)
+  const nameY_S    = y - 14
+  const nameFH_S   = Math.round(15 * Math.max(0.8, scale))
+  drawName(nickname, cx(), nameY_S, isAlly, 'center', isTurnSeat(socketId), isLeaderS)
+  drawSeatBidAction(s.lastBidAction, cx(), nameY_S + Math.ceil(nameFH_S / 2) + 3, 'center')
 }
 
 // ── North — face-down hand ────────────────────────────────────────
 function drawNorth() {
   const s = seat('north')
-  const { nickname, isAlly } = s
+  const { nickname, isAlly, socketId } = s
   const n  = s.cardCount ?? 8
   // Allow cards to overflow the top on mobile; show the bottom edge + name
   const y  = scale < 1 ? -Math.round(ch * 0.35) : 24
@@ -394,7 +487,11 @@ function drawNorth() {
 
   for (let i = 0; i < n; i++) drawBack(x0 + i * (cw + hgap), y)
 
-  drawName(nickname, cx(), Math.max(14, y + ch + 14), isAlly)
+  const isLeaderN = !!(state.trickInfo?.trickLeaderSocketId === socketId)
+  const nameY_N   = Math.max(14, y + ch + 14)
+  const nameFH_N  = Math.round(15 * Math.max(0.8, scale))
+  drawName(nickname, cx(), nameY_N, isAlly, 'center', isTurnSeat(socketId), isLeaderN)
+  drawSeatBidAction(s.lastBidAction, cx(), nameY_N + Math.ceil(nameFH_N / 2) + 3, 'center')
 }
 
 // ── West — rotated 90° CW ─────────────────────────────────────────
@@ -402,7 +499,7 @@ function drawNorth() {
 // card width (cw) becomes the on-screen height.
 function drawWest() {
   const s = seat('west')
-  const { nickname, isAlly } = s
+  const { nickname, isAlly, socketId } = s
   const n    = s.cardCount ?? 8
   const rotW = ch   // on-screen width  of one rotated card
   const rotH = cw   // on-screen height of one rotated card
@@ -416,13 +513,17 @@ function drawWest() {
     drawBackRotated(cardCX, y0 + i * step + rotH / 2, Math.PI / 2)
   }
 
-  drawName(nickname, 20 + rotW + 10, cy(), isAlly, 'left')
+  const isLeaderW = !!(state.trickInfo?.trickLeaderSocketId === socketId)
+  const nameX_W   = 20 + rotW + 10
+  const nameFH_W  = Math.round(15 * Math.max(0.8, scale))
+  drawName(nickname, nameX_W, cy(), isAlly, 'left', isTurnSeat(socketId), isLeaderW)
+  drawSeatBidAction(s.lastBidAction, nameX_W, cy() + Math.ceil(nameFH_W / 2) + 3, 'left')
 }
 
 // ── East — rotated 90° CCW ────────────────────────────────────────
 function drawEast() {
   const s = seat('east')
-  const { nickname, isAlly } = s
+  const { nickname, isAlly, socketId } = s
   const n    = s.cardCount ?? 8
   const rotW = ch
   const rotH = cw
@@ -435,7 +536,11 @@ function drawEast() {
     drawBackRotated(cardCX, y0 + i * step + rotH / 2, -Math.PI / 2)
   }
 
-  drawName(nickname, canvas.width - 20 - rotW - 10, cy(), isAlly, 'right')
+  const isLeaderE = !!(state.trickInfo?.trickLeaderSocketId === socketId)
+  const nameX_E   = canvas.width - 20 - rotW - 10
+  const nameFH_E  = Math.round(15 * Math.max(0.8, scale))
+  drawName(nickname, nameX_E, cy(), isAlly, 'right', isTurnSeat(socketId), isLeaderE)
+  drawSeatBidAction(s.lastBidAction, nameX_E, cy() + Math.ceil(nameFH_E / 2) + 3, 'right')
 }
 
 // ── Pli zone ──────────────────────────────────────────────────────
@@ -516,14 +621,15 @@ function drawBidHUD() {
       turnText  = p.isMe ? 'Votre tour !' : `Tour de ${p.nickname}`
       turnColor = p.isMe ? '#daa520' : 'rgba(240,230,200,0.65)'
     }
-  } else if (state.bidderNickname) {
-    turnText = `Tour : ${state.bidderNickname}`
+  } else if (state.bidderSocketId) {
+    const bidder = state.seats.find(s => s.socketId === state.bidderSocketId)
+    if (bidder) turnText = `Tour : ${bidder.nickname}`
   }
 
   const hs = Math.max(0.75, scale)
   const rows = [
     { text: 'ENCHÈRE', font: `bold ${Math.round(10 * hs)}px Georgia, serif`, color: 'rgba(240,230,200,0.45)', h: Math.round(16 * hs) },
-    { text: bidText,   font: `bold ${Math.round(18 * hs)}px Georgia, serif`, color: 'rgba(240,230,200,0.90)', h: Math.round(26 * hs) },
+    { text: bidText,   font: `bold ${Math.round(36 * hs)}px Georgia, serif`, color: '#ffffff',               h: Math.round(52 * hs) },
   ]
   if (state.highBidderNickname)
     rows.push({ text: state.highBidderNickname, font: `${Math.round(11 * hs)}px Georgia, serif`,      color: 'rgba(240,230,200,0.50)', h: Math.round(18 * hs) })

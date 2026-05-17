@@ -130,7 +130,7 @@ On disconnect the server does **not** call `leaveRoom` immediately — it starts
 | `room:start` | — | creator only + 4 players: calls `deal()`, emits `game:dealt` + `bid:state` |
 | `bid:place` | `{value, suit}` | place a bid; must be higher than current highBid |
 | `bid:pass` | — | pass; 4 passes with no bid → redeal; 3 passes after bid → bid won |
-| `bid:contree` | — | opponent declares contrée on current highBid |
+| `bid:contree` | — | opponent declares contrée on current highBid; resets passCount to 0 (counts as a bid — need a full 3-pass round to start game) |
 | `bid:surcontree` | — | bid winner's team declares surcontrée after contrée; immediately ends bidding, game starts after 1.5s |
 | `play:card` | `{rank, suit}` | play a card; validated against follow-suit + trump rules |
 
@@ -145,11 +145,11 @@ On disconnect the server does **not** call `leaveRoom` immediately — it starts
 | `room:left` | — | leaving player |
 | `room:error` | string | requester (room full/gone) |
 | `game:dealt` | `{seats, myHand, dealerPosition, firstBidderPosition}` | each player individually |
-| `bid:state` | `{currentBidderSocketId, highBid, contree}` — `highBid` includes `bidderNickname` | everyone in room |
+| `bid:state` | `{currentBidderSocketId, highBid, contree, lastAction}` — `highBid` includes `bidderNickname`; `lastAction` is `{ type: 'bid'\|'pass'\|'contree', socketId, nickname, value?, suit? }` or `null` (null on initial deal and session restore) | everyone in room |
 | `bid:contree-announced` | — | everyone in room (client shows "Contré !" slam animation, auto-hides after 2s) |
 | `bid:surcontree-announced` | — | everyone in room (client shows "Surcontré !" slam animation; `game:play-start` follows after 1.5s) |
 | `game:play-start` | `{bid, firstPlayerSocketId, trump}` | everyone in room |
-| `play:state` | `{currentPlayerSocketId, trick, tricksPlayed, scores, trump}` | everyone in room |
+| `play:state` | `{currentPlayerSocketId, trickLeaderSocketId, trick, tricksPlayed, scores, trump}` | everyone in room |
 | `play:your-turn` | `{validCards}` | current player only |
 | `play:belote` | `{nickname, type}` | everyone in room |
 | `trick:won` | `{winnerSocketId, winnerNickname, trick, scores, tricksPlayed}` | everyone in room |
@@ -163,26 +163,30 @@ On disconnect the server does **not** call `leaveRoom` immediately — it starts
 state = {
   mySocketId,
   seats[],              // visual order: south(me), west, north, east
+                        //   each seat: { socketId, nickname, position, team, isAlly, isMe,
+                        //               cardCount, lastBidAction }
+                        //   lastBidAction: { type, socketId, nickname, value?, suit? } | null
   myHand[],             // { rank, suit }[]
   pli[],                // current trick cards for drawing — { rank, suit }[]
   bid,                  // { value, suit, contree } | null
-  bidderNickname,       // nickname of the player currently being asked to bid
+  bidderNickname,       // nickname of the current bidder (derived from bidderSocketId + seats)
+  bidderSocketId,       // socketId of the player currently asked to bid (null during play phase)
   highBidderNickname,   // nickname of the player who placed the current highest bid
   trump,                // suit string during playing phase
   isMyTurn,             // true when it's the local player's turn to play
   validCards[],         // { rank, suit }[] — cards allowed to play this turn
-  trickInfo,            // { currentPlayerSocketId, scores, tricksPlayed } | null
+  trickInfo,            // { currentPlayerSocketId, trickLeaderSocketId, scores, tricksPlayed } | null
   trickMessage,         // "X remporte le pli" shown briefly after trick:won
 }
 ```
 
 **Exported mutators** (called from `main.js` on socket events):
-- `applyDealt(data)` — maps server seat order to visual layout, resets state; sorts hand by suit then non-trump power
-- `applyBidState(data)` — updates bid HUD + bidderNickname
-- `applyPlayStart(data)` — stores final bid + trump; re-sorts hand so trump suit uses trump power (J > 9 > A > 10 > K > Q > 8 > 7)
-- `applyPlayState(data)` — updates pli, isMyTurn, trickInfo; clears trickMessage
+- `applyDealt(data)` — maps server seat order to visual layout, resets state (including `lastBidAction: null` on every seat); sorts hand by suit then non-trump power. Does NOT clear `bidderSocketId` — re-resolves `bidderNickname` from fresh seats in case `bid:state` arrived during async `loadAssets` (round 1 race condition).
+- `applyBidState(data)` — updates bid HUD, sets `bidderSocketId` + `bidderNickname`; if `data.lastAction.socketId` is present, stores the action on the matching seat's `lastBidAction`
+- `applyPlayStart(data)` — stores final bid + trump; clears `bidderSocketId`; re-sorts hand so trump suit uses trump power (J > 9 > A > 10 > K > Q > 8 > 7)
+- `applyPlayState(data)` — updates pli, isMyTurn, trickInfo (including trickLeaderSocketId); clears trickMessage
 - `applyYourTurn(data)` — sets validCards, triggers highlight re-render
-- `applyTrickWon(data)` — sets trickMessage + updates scores
+- `applyTrickWon(data)` — sets trickMessage, updates scores, updates trickInfo.trickLeaderSocketId to winner
 - `setOnCardPlay(cb)` — registers callback fired when local player clicks a valid card
 
 **Hand sorting (`sortHand(hand, trump)`):** called on deal and again on play-start. Suit order: Hearts > Spades > Diamonds > Clubs. Non-trump rank order: A > 10 > K > Q > J > 9 > 8 > 7. Trump rank order: J > 9 > A > 10 > K > Q > 8 > 7. Constants `RANK_ORDER` and `RANK_ORDER_TRUMP` live at the top of `game.js`.
@@ -218,8 +222,14 @@ position = ['south','west','north','east'][(myIdx + offset) % 4]
 
 **Team colors:** `isAlly: true` → `#6ab0ff` (blue), `isAlly: false` → `#ff7070` (red). Computed from team field (`'A'` or `'B'`): South+North = A, West+East = B.
 
+**Per-seat visual indicators (drawn by `drawName` + `drawSeatBidAction`):**
+- `drawName` accepts `isCurrentTurn` and `isLeader` flags:
+  - `isCurrentTurn` — thin gold `#daa520` rect around the nickname. Active for the current bidder (bidding, via `bidderSocketId`) and current player (play, via `trickInfo.currentPlayerSocketId`). Helper `isTurnSeat(socketId)` picks the right source.
+  - `isLeader` — gold ★ above the nickname marking the trick leader (`trickInfo.trickLeaderSocketId`). Play phase only.
+- `drawSeatBidAction(action, x, y, align)` — draws a small label just below the nickname showing the seat's `lastBidAction`. Only rendered when `state.trickInfo === null` (bidding phase). Format: `"80 ♥"` (cream/red by suit), `"Passe"` (grey), `"Contré"` (purple). Each seat accumulates its own last action independently so all 4 labels can be visible simultaneously.
+
 **HUD layout:**
-- **Bid HUD (`drawBidHUD`):** during bid phase (or desktop/portrait) — `rgba(0,0,0,0.3)` box centred between the pli dashed border and the south hand, containing ENCHÈRE label, bid value + suit + contree status, high bidder's nickname, turn indicator ("Votre tour !" in gold). On mobile landscape during play phase — compact single-line badge (e.g. `80 ♥` or `100 ♠ CONTRÉ`) right-aligned at top-right of canvas.
+- **Bid HUD (`drawBidHUD`):** during bid phase (or desktop/portrait) — `rgba(0,0,0,0.3)` box centred between the pli dashed border and the south hand, containing ENCHÈRE label, **current bid value at 36px white** (2× the previous 18px cream), high bidder's nickname, turn indicator ("Votre tour !" in gold or "Tour : X" derived live from `bidderSocketId` + `state.seats`). On mobile landscape during play phase — compact single-line badge right-aligned at top-right of canvas.
 - **Trick HUD (`drawTrickInfo`):** top-left, dark background box auto-sized to text, current trick number (N/8), running scores A/B. Font is 2× larger on mobile (any orientation) during play phase vs desktop.
 - All canvas text uses `ctx.strokeText` (black, `rgba(0,0,0,0.75)`) before `ctx.fillText` for readability on all backgrounds.
 
@@ -231,12 +241,22 @@ position = ['south','west','north','east'][(myIdx + offset) % 4]
 - North opponent: shifted up so cards partially overflow the top edge on mobile.
 - `touch-action: none` on `#game` canvas; `user-scalable=no` in viewport meta.
 
-**Bid overlay (`#bid-overlay`):** full-screen backdrop (`inset:0`, `rgba(0,0,0,0.55)`) with centred inner `#bid-modal-box`. Shown only when it is the local player's turn to bid. Does **not** cause the south hand to pop (hand pop is play-phase only). Mobile breakpoint increases button min-heights for touch targets.
+**Bid overlay (`#bid-overlay`):** full-screen backdrop (`inset:0`, `rgba(0,0,0,0.55)`) with centred inner `#bid-modal-box`. Shown only when it is the local player's turn to bid AND no contrer/surcontrer modal is warranted. Does **not** cause the south hand to pop (hand pop is play-phase only). Mobile breakpoint increases button min-heights for touch targets.
 
-**Announcement overlays:** three fixed-position divs shown over the canvas with slam-in animations, all pointer-events none, font Impact, `z-index: 100`.
-- `#surcontree-announcement` — yellow (`#ffe066`), flies from right, hidden on `game:play-start` (no auto-hide timer since `game:play-start` fires after 1.5s).
-- `#contree-announcement` — red (`#ff6666`), flies from left, auto-hides after 2s via `flashAnnouncement()`. Also cleared on `game:play-start` in case surcontré follows immediately.
-- `#belote-announcement` — teal (`#66ffcc`), drops from top, text set dynamically to `"Belote ! (nickname)"` or `"Rebelote ! (nickname)"`, auto-hides after 2.5s.
+**Contrer/Surcontrer modal (`#contrer-modal`):** replaces the regular bid overlay when the local player can contrer or surcontrer. Shows a focused prompt — `"Contrer ?"` or `"Surcontrer ?"` with the current bid label (e.g. `80 ♥`) and two buttons:
+- **Oui** → fires `bid:contree` or `bid:surcontree`, closes modal.
+- **Non** → closes modal, opens the regular bid overlay (so the player can still pass or place a higher bid).
+Managed by `applyBidUIState` in `bid-ui.js`. `hideBidOverlay()` also closes this modal, ensuring it disappears on `game:play-start` and after actions.
+
+**Bid action announcement (`#bid-action-announcement`):** `z-index: 50`, pop-in scale animation, `pointer-events: none`. Shown for 1.5s on every bid or pass during bidding. Format: `"80 ♥ (Alice)"` (suit colored red for hearts/diamonds) or `"Passe (Alice)"` (grey). Contrée type skips the text (the "Contré !" slam handles it) but still triggers the 1.5s delay. Cleared on `game:play-start`.
+
+**`bid:state` UI delay:** when `data.lastAction` is present, `main.js` calls `showBidAction` then schedules `applyBidUIState` via `bidActionTimer` after 1500ms — blocking the contrer modal and bid overlay from appearing immediately. Rapid actions cancel the previous timer (`clearTimeout`) so only the last one fires.
+
+**Announcement overlays:** fixed-position divs shown over the canvas with slam-in animations, all pointer-events none, font Impact.
+- `#bid-action-announcement` — cream/grey, pop-in scale, `z-index: 50`, auto-hides after 1.5s.
+- `#surcontree-announcement` — yellow (`#ffe066`), flies from right, `z-index: 100`, hidden on `game:play-start`.
+- `#contree-announcement` — red (`#ff6666`), flies from left, `z-index: 100`, auto-hides after 2s. Also cleared on `game:play-start`.
+- `#belote-announcement` — teal (`#66ffcc`), drops from top, `z-index: 100`, text set dynamically to `"Belote ! (nickname)"` or `"Rebelote ! (nickname)"`, auto-hides after 2.5s.
 
 `flashAnnouncement(id, text, duration)` in `main.js` — resets CSS animation (force-reflow trick), removes `.hidden`, sets a `_hideTimer` timeout to re-add `.hidden`.
 
@@ -254,6 +274,13 @@ position = ['south','west','north','east'][(myIdx + offset) % 4]
 - **Mobile support:** dynamic card scaling, touch input, landscape-aware Game HUD (Bid Badge top-right + Trick HUD top-left at 2× font with dark backing), south hand pops fully visible on player's turn (play phase only), west/east opponents tightly stacked, bid overlay converted to centred modal with backdrop.
 - **Security hardening:** all player nicknames HTML-escaped via `escapeHtml()` (`scoring.js`) before insertion into `innerHTML` (waiting room slots, game-over result, score table headers). `bidWon()` in `server/game.js` guards against null game so a surcontree setTimeout firing after a room empties cannot crash the server.
 - **Refactor:** server split into `state.js` / `game.js` / `index.js`; client `main.js` split into `main.js` / `bid-ui.js` / `scoring.js`.
+- **Per-seat visual indicators:** gold ★ above the trick leader's nickname; thin gold frame around the current bidder/player's nickname. Both drawn inside `drawName` via `isLeader` / `isCurrentTurn` flags. `isTurnSeat(socketId)` picks the right source (bidderSocketId during bidding, trickInfo.currentPlayerSocketId during play). `trickLeaderSocketId` added to `play:state` server payload and propagated through `applyPlayState` / `applyTrickWon`.
+- **Contrée bidding fix:** `bid:contree` now resets `passCount = 0` (treating contrée as a bid). Previously it incremented passCount, meaning a contrée after 2 passes would immediately trigger `bidWon`. Now a full 3-pass round is required after contrée.
+- **`applyDealt` race condition fix:** `game:dealt` handler is async (awaits `loadAssets` in round 1). If `bid:state` arrived during image loading, `bidderSocketId` was correctly set — but then `applyDealt` cleared it. Fix: `applyDealt` no longer clears `bidderSocketId`; it re-resolves `bidderNickname` from the freshly-built seats instead. `drawBidHUD` derives the turn label live from `bidderSocketId` + `state.seats` (not from the stored `bidderNickname`) for robustness.
+- **Contrer/Surcontrer modal:** `bid-ui.js` now shows `#contrer-modal` (focused "Oui/Non" prompt) instead of the full overlay when the local player can contrer or surcontrer. "Non" falls through to the regular overlay. `hideBidOverlay` also hides the modal.
+- **Bid action announcements + UI delay:** `bid:state` now carries `lastAction: { type, socketId, nickname, value?, suit? }` (set in all three bid handlers). Client shows a 1.5s pop-in announcement (`#bid-action-announcement`) for every bid/pass and delays the bid UI by the same duration, preventing the contrer modal from appearing immediately after another player's action.
+- **Per-seat bid history labels:** each seat has `lastBidAction` (set in `applyBidState` by matching `lastAction.socketId`). `drawSeatBidAction` renders a small label below each nickname during the bidding phase only (`trickInfo === null`). Labels accumulate independently — all 4 can be visible at once. Cleared on new deal (`applyDealt` rebuilds seats with `lastBidAction: null`).
+- **Bid HUD value size:** current bid value row in `drawBidHUD` is now 36px white (`#ffffff`) instead of 18px cream — 2× larger for readability.
 
 ### Known bugs
 
@@ -271,6 +298,7 @@ No planned next step. Core game loop is complete (A through F). Possible future 
 - **Belote/Rebelote:** K+Q of trump in same hand = 20 bonus pts. Always scored (win or lose). Counts toward the bidding team's fulfillment check, but the defense's belote cannot cause the bidding team to fail. Auto-detected server-side; announced when first of the two is played.
 - **No "sans atout" / "tout atout" variants.** No figure announcements (tierces, carrés, etc.) before scoring.
 - **All pass → redeal** with next dealer (dealerIdx advances by 1).
+- **Contrée counts as a bid:** after contrée, `passCount` resets to 0. Three more passes are required before `bidWon` is triggered. Surcontrée ends bidding immediately (no passes needed).
 
 ### Official scoring rules (implemented in `computeGameScore`, `scoring.js`)
 - **Fulfilled:** bidding team scores exactly their bid value (excess card points discarded); opponent scores 0. Both teams add their belote bonus on top.

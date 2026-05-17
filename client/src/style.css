@@ -303,6 +303,99 @@ button.hidden { display: none; }
 #btn-contree, #btn-surcontree { background: #7a3a8a; }
 #btn-contree:hover:not(:disabled), #btn-surcontree:hover:not(:disabled) { background: #9a4aaa; }
 
+/* ── Contrer / Surcontrer modal ─────────────────────────────── */
+#contrer-modal {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.55);
+  z-index: 10;
+}
+#contrer-modal.hidden { display: none; }
+
+#contrer-modal-box {
+  background: rgba(0, 40, 40, 0.97);
+  border: 1px solid rgba(184, 134, 11, 0.7);
+  border-radius: 14px;
+  padding: 28px 36px 24px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 14px;
+  min-width: 240px;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.7);
+}
+
+#contrer-modal-bid {
+  font-size: 1.1rem;
+  color: rgba(240, 230, 200, 0.6);
+  letter-spacing: 0.05em;
+}
+
+#contrer-modal-question {
+  font-size: 1.9rem;
+  font-weight: bold;
+  color: #f0e6c8;
+  letter-spacing: 0.04em;
+}
+
+#contrer-modal-actions {
+  display: flex;
+  gap: 14px;
+  margin-top: 4px;
+}
+
+#btn-contrer-oui {
+  background: #7a3a8a;
+  padding: 10px 32px;
+  font-size: 1.05rem;
+  font-weight: bold;
+  min-width: 80px;
+}
+#btn-contrer-oui:hover { background: #9a4aaa; }
+
+#btn-contrer-non {
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  padding: 10px 32px;
+  font-size: 1.05rem;
+  min-width: 80px;
+}
+#btn-contrer-non:hover { background: rgba(255, 255, 255, 0.15); }
+
+@media (max-height: 480px) {
+  #contrer-modal-box { padding: 18px 28px 16px; gap: 10px; }
+  #contrer-modal-question { font-size: 1.4rem; }
+  #btn-contrer-oui, #btn-contrer-non { padding: 8px 24px; }
+}
+
+/* ── Bid action announcement (bid / pass) ────────────────────── */
+#bid-action-announcement {
+  position: fixed;
+  top: 50%;
+  left: 50%;
+  z-index: 50;
+  pointer-events: none;
+  white-space: nowrap;
+  font-family: Impact, 'Arial Black', sans-serif;
+  font-size: clamp(1.8rem, 5.5vw, 3rem);
+  font-weight: 900;
+  text-shadow:
+    3px 3px 0 rgba(0,0,0,0.8),
+    -3px -3px 0 rgba(0,0,0,0.8),
+    3px -3px 0 rgba(0,0,0,0.8),
+    -3px 3px 0 rgba(0,0,0,0.8);
+  animation: bid-action-pop 0.3s cubic-bezier(0.15, 0.85, 0.3, 1.2) forwards;
+}
+#bid-action-announcement.hidden { display: none; }
+
+@keyframes bid-action-pop {
+  from { transform: translate(-50%, -50%) scale(0.7); opacity: 0; }
+  to   { transform: translate(-50%, -50%) scale(1);   opacity: 1; }
+}
+
 /* ── Surcontré announcement ─────────────────────────────────── */
 #surcontree-announcement {
   position: fixed;
