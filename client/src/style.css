@@ -220,12 +220,19 @@ button.hidden { display: none; }
   letter-spacing: 0.05em;
 }
 
-/* ── Bid overlay ────────────────────────────────────────────── */
+/* ── Bid overlay (modal) ────────────────────────────────────── */
 #bid-overlay {
   position: fixed;
-  bottom: 175px;
-  left: 50%;
-  transform: translateX(-50%);
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.55);
+  z-index: 10;
+}
+#bid-overlay.hidden { display: none; }
+
+#bid-modal-box {
   background: rgba(0, 40, 40, 0.95);
   border: 1px solid rgba(184, 134, 11, 0.6);
   border-radius: 12px;
@@ -234,11 +241,10 @@ button.hidden { display: none; }
   flex-direction: column;
   align-items: center;
   gap: 10px;
-  z-index: 10;
-  min-width: 400px;
+  min-width: 320px;
+  max-width: min(480px, 92vw);
   box-shadow: 0 4px 24px rgba(0,0,0,0.6);
 }
-#bid-overlay.hidden { display: none; }
 
 #bid-current-info {
   font-size: 0.82rem;
@@ -576,6 +582,29 @@ button.hidden { display: none; }
   display: flex;
   flex-direction: column;
   gap: 16px;
+}
+
+/* ── Canvas: block browser touch gestures (scroll/zoom) ─────── */
+#game { touch-action: none; }
+
+/* ── Mobile touch target sizing ─────────────────────────────── */
+@media (max-width: 767px) {
+  #bid-values button {
+    min-height: 36px;
+    padding: 6px 8px;
+    min-width: 36px;
+  }
+  #bid-suits button {
+    min-height: 44px;
+    padding: 8px 12px;
+  }
+  #bid-actions button {
+    padding: 10px 16px;
+  }
+  #bid-modal-box {
+    min-width: 0;
+    width: 92vw;
+  }
 }
 
 @keyframes surcontree-slam {

@@ -141,7 +141,8 @@ On disconnect the server does **not** call `leaveRoom` immediately — it starts
 | `room:error` | string | requester (room full/gone) |
 | `game:dealt` | `{seats, myHand, dealerPosition, firstBidderPosition}` | each player individually |
 | `bid:state` | `{currentBidderSocketId, highBid, contree}` — `highBid` includes `bidderNickname` | everyone in room |
-| `bid:surcontree-announced` | — | everyone in room (client shows slam animation; `game:play-start` follows after 1.5s) |
+| `bid:contree-announced` | — | everyone in room (client shows "Contré !" slam animation, auto-hides after 2s) |
+| `bid:surcontree-announced` | — | everyone in room (client shows "Surcontré !" slam animation; `game:play-start` follows after 1.5s) |
 | `game:play-start` | `{bid, firstPlayerSocketId, trump}` | everyone in room |
 | `play:state` | `{currentPlayerSocketId, trick, tricksPlayed, scores, trump}` | everyone in room |
 | `play:your-turn` | `{validCards}` | current player only |
@@ -215,7 +216,12 @@ position = ['south','west','north','east'][(myIdx + offset) % 4]
 - Centre (between pli zone and south hand): `drawBidHUD()` — black `rgba(0,0,0,0.3)` box containing: ENCHÈRE label, bid value + suit + contree status, high bidder's nickname, turn indicator ("Votre tour !" in gold). Vertically centred in the gap between the pli dashed border (`cy()+115`) and the south player name.
 - Top-left: `drawTrickInfo()` — current trick number (N/8, starts at 1), running scores for both teams (only during playing phase)
 
-**Surcontré announcement:** when `bid:surcontree-announced` is received, the `#surcontree-announcement` div is shown with a CSS slam-in animation (flies from right, settles with slight angle). Hidden again on `game:play-start`.
+**Announcement overlays:** three fixed-position divs shown over the canvas with slam-in animations, all pointer-events none, font Impact, `z-index: 100`.
+- `#surcontree-announcement` — yellow (`#ffe066`), flies from right, hidden on `game:play-start` (no auto-hide timer since `game:play-start` fires after 1.5s).
+- `#contree-announcement` — red (`#ff6666`), flies from left, auto-hides after 2s via `flashAnnouncement()`. Also cleared on `game:play-start` in case surcontré follows immediately.
+- `#belote-announcement` — teal (`#66ffcc`), drops from top, text set dynamically to `"Belote ! (nickname)"` or `"Rebelote ! (nickname)"`, auto-hides after 2.5s.
+
+`flashAnnouncement(id, text, duration)` in `main.js` — resets CSS animation (force-reflow trick), removes `.hidden`, sets a `_hideTimer` timeout to re-add `.hidden`.
 
 ---
 
@@ -224,7 +230,7 @@ position = ['south','west','north','east'][(myIdx + offset) % 4]
 ### Done
 - **Step A — Game canvas layout:** static canvas with 4 player positions, team colors, face-down side cards, pli zone, bid HUD placeholder.
 - **Step B — Server game init + dealing:** seat assignment, shuffle/deal, `game:dealt` emitted individually, server-side `games` Map stores hands for future validation.
-- **Step C — Bidding phase:** full bidding state machine (80–Capot, named suit), contree/surcontree, all-pass redeal with advancing dealer, HTML overlay with value/suit selector, bid won → `game:play-start` + `emitPlayState`. Surcontrée immediately ends bidding (no further passes needed) and triggers a 1.5s "Surcontré !" slam animation before play starts. Seat order shuffled once per session on first deal (then fixed); dealer index rotates each game.
+- **Step C — Bidding phase:** full bidding state machine (80–Capot, named suit), contree/surcontree, all-pass redeal with advancing dealer, HTML overlay with value/suit selector, bid won → `game:play-start` + `emitPlayState`. Surcontrée immediately ends bidding (no further passes needed) and triggers a 1.5s "Surcontré !" slam animation before play starts. Seat order shuffled once per session on first deal (then fixed); dealer index rotates each game. Contré/Surcontré/Belote/Rebelote each have a slam-in announcement overlay.
 - **Step D — Trick play phase:** card validation (follow suit, trump obligation, overtrump, partner exception), trick resolution, scoring (trump/non-trump points, dix de der), belote/rebelote detection, 8 tricks → `game:over`. Client: click-to-play, gold highlight on valid cards, dim on invalid, trick score HUD, "X remporte le pli" message.
 - **Step E — Scoring + score table:** official French Contrée scoring implemented client-side in `computeGameScore()` (`main.js`). Per-game modal shows raw card points; score table accumulates contract-adjusted points toward 500. Auto-redeals every 8s after game end.
 
