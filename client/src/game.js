@@ -1,11 +1,18 @@
 import { showScreen } from './router.js'
 import { soundHover, soundPlay } from './soundManager.js'
 
-const CARD_W = 88
-const CARD_H = 124
-const HAND_GAP = 10
-const FAN_ANGLE  = Math.PI / 18   // 10° per card in pli
-const FAN_SPREAD = 22             // px horizontal spread per card in pli
+const BASE_W          = 88
+const BASE_H          = 124
+const BASE_GAP        = 10
+const FAN_ANGLE       = Math.PI / 18
+const BASE_FAN_SPREAD = 22
+
+// Scaled card dimensions — recomputed on each resize()
+let scale     = 1
+let cw        = BASE_W
+let ch        = BASE_H
+let hgap      = BASE_GAP
+let fanSpread = BASE_FAN_SPREAD
 
 const SPRITE = {
   'A':  { sx: 0,   sy: 0   },
@@ -60,18 +67,18 @@ export const state = {
     { suit: 'Diamonds', rank: 'Q'  },
     { suit: 'Clubs',    rank: 'K'  },
   ],
-  pli:              [],   // { rank, suit }[]  – cards played in current trick
-  bid:              null, // { value, suit, contree } | null
-  bidderNickname:   null, // nickname of player whose turn it is to bid
-  highBidderNickname: null, // nickname of player who placed the current highest bid
-  trump:         null,  // suit string during playing phase
+  pli:              [],
+  bid:              null,
+  bidderNickname:   null,
+  highBidderNickname: null,
+  trump:         null,
   isMyTurn:      false,
-  validCards:    [],    // { rank, suit }[] — cards the local player may play
-  trickInfo:     null,  // { currentPlayerSocketId, scores, tricksPlayed }
-  trickMessage:  null,  // brief "X remporte le pli" shown after trick:won
+  validCards:    [],
+  trickInfo:     null,
+  trickMessage:  null,
 }
 
-// ── Card play callback (set by main.js) ──────────────────────────
+// ── Card play callback ────────────────────────────────────────────
 let onCardPlay = null
 export function setOnCardPlay(cb) { onCardPlay = cb }
 
@@ -86,8 +93,9 @@ export async function initGame(canvasEl, mySocketId) {
   if (!initialized) {
     await loadAssets()
     window.addEventListener('resize', () => { resize(); render() })
-    canvas.addEventListener('click',     handleCanvasClick)
-    canvas.addEventListener('mousemove', handleCanvasMouseMove)
+    canvas.addEventListener('click',      handleCanvasClick)
+    canvas.addEventListener('mousemove',  handleCanvasMouseMove)
+    canvas.addEventListener('touchstart', handleCanvasTouch, { passive: false })
     initialized = true
   }
 
@@ -95,20 +103,55 @@ export async function initGame(canvasEl, mySocketId) {
   render()
 }
 
+// ── Scale / layout helpers ────────────────────────────────────────
+function getScale() {
+  // Scale down on mobile (min dimension < 600px); desktop stays at 1
+  const minDim = Math.min(window.innerWidth, window.innerHeight)
+  return minDim >= 600 ? 1 : Math.max(0.5, minDim / 600)
+}
+
+// Top edge of the south hand on canvas
+function southY() {
+  if (scale < 1 && state.isMyTurn) return canvas.height - ch - 16  // fully visible during turn
+  return scale < 1
+    ? canvas.height - Math.round(ch * 0.55)   // ~55% visible at rest
+    : canvas.height - ch - 24
+}
+
+function cx() { return canvas.width  / 2 }
+function cy() { return canvas.height / 2 }
+
+function handX0(count = 8) {
+  return (canvas.width - (count * cw + (count - 1) * hgap)) / 2
+}
+
+function seat(pos) { return state.seats.find(s => s.position === pos) }
+
+// ── Input handlers ────────────────────────────────────────────────
+function handleCanvasTouch(e) {
+  e.preventDefault()
+  const touch = e.changedTouches[0]
+  const rect  = canvas.getBoundingClientRect()
+  handleCanvasClick({
+    offsetX: touch.clientX - rect.left,
+    offsetY: touch.clientY - rect.top,
+  })
+}
+
 function handleCanvasClick(e) {
   if (!state.isMyTurn || !state.validCards.length) return
   const n = state.myHand.length
   if (!n) return
-  const y  = canvas.height - CARD_H - 24
+  const y  = southY()
   const x0 = handX0(n)
   for (let i = n - 1; i >= 0; i--) {
-    const cardX = x0 + i * (CARD_W + HAND_GAP)
-    if (e.offsetX >= cardX && e.offsetX < cardX + CARD_W && e.offsetY >= y && e.offsetY < y + CARD_H) {
+    const cardX = x0 + i * (cw + hgap)
+    if (e.offsetX >= cardX && e.offsetX < cardX + cw && e.offsetY >= y && e.offsetY < y + ch) {
       const card = state.myHand[i]
       if (state.validCards.some(c => c.rank === card.rank && c.suit === card.suit)) {
         soundPlay()
         state.myHand.splice(i, 1)
-        state.isMyTurn  = false
+        state.isMyTurn   = false
         state.validCards = []
         render()
         onCardPlay?.(card)
@@ -126,13 +169,13 @@ function handleCanvasMouseMove(e) {
   }
   const n = state.myHand.length
   if (!n) { canvas.style.cursor = 'default'; hoveredCardIdx = -1; return }
-  const y  = canvas.height - CARD_H - 24
+  const y  = southY()
   const x0 = handX0(n)
   let pointer = false
   let hitIdx  = -1
   for (let i = 0; i < n; i++) {
-    const cardX = x0 + i * (CARD_W + HAND_GAP)
-    if (e.offsetX >= cardX && e.offsetX < cardX + CARD_W && e.offsetY >= y && e.offsetY < y + CARD_H) {
+    const cardX = x0 + i * (cw + hgap)
+    if (e.offsetX >= cardX && e.offsetX < cardX + cw && e.offsetY >= y && e.offsetY < y + ch) {
       const isValid = state.validCards.some(c => c.rank === state.myHand[i].rank && c.suit === state.myHand[i].suit)
       if (isValid) { pointer = true; hitIdx = i }
       break
@@ -143,7 +186,8 @@ function handleCanvasMouseMove(e) {
   canvas.style.cursor = pointer ? 'pointer' : 'default'
 }
 
-const SUIT_ORDER = { Hearts: 0, Spades: 1, Diamonds: 2, Clubs: 3 }
+// ── Sorting ───────────────────────────────────────────────────────
+const SUIT_ORDER       = { Hearts: 0, Spades: 1, Diamonds: 2, Clubs: 3 }
 const RANK_ORDER       = { A: 0, '10': 1, K: 2, Q: 3, J: 4, '9': 5, '8': 6, '7': 7 }
 const RANK_ORDER_TRUMP = { J: 0, '9': 1, A: 2, '10': 3, K: 4, Q: 5, '8': 6, '7': 7 }
 function sortHand(hand, trump = null) {
@@ -155,14 +199,13 @@ function sortHand(hand, trump = null) {
   })
 }
 
-// ── Apply server deal ─────────────────────────────────────────────
-// Clockwise visual order from me: south(me) → west(left) → north(ally) → east(right)
+// ── Apply server events ───────────────────────────────────────────
 export function applyDealt(data) {
   const myIdx  = data.seats.findIndex(s => s.socketId === state.mySocketId)
   const myTeam = data.seats[myIdx].team
 
   state.seats = [0, 1, 2, 3].map(offset => {
-    const abs  = data.seats[(myIdx + offset) % 4]
+    const abs = data.seats[(myIdx + offset) % 4]
     return {
       socketId:  abs.socketId,
       nickname:  abs.nickname,
@@ -253,6 +296,11 @@ export function applyTrickWon(data) {
 function resize() {
   canvas.width  = window.innerWidth
   canvas.height = window.innerHeight
+  scale     = getScale()
+  cw        = Math.round(BASE_W * scale)
+  ch        = Math.round(BASE_H * scale)
+  hgap      = Math.round(BASE_GAP * scale)
+  fanSpread = Math.round(BASE_FAN_SPREAD * scale)
 }
 
 // ── Main render ───────────────────────────────────────────────────
@@ -263,45 +311,40 @@ export function render() {
   drawWest()
   drawEast()
   drawPli()
-  drawSouth()   // south last so hand overlaps pli zone if needed
+  if (!state.isMyTurn) drawSouth()
   drawBidHUD()
   drawTrickInfo()
+  if (state.isMyTurn) drawSouth()  // on top of HUD during the player's turn
 }
-
-// ── Layout helpers ────────────────────────────────────────────────
-function seat(pos) { return state.seats.find(s => s.position === pos) }
-
-function handX0(count = 8) {
-  return (canvas.width - (count * CARD_W + (count - 1) * HAND_GAP)) / 2
-}
-
-function cx() { return canvas.width  / 2 }
-function cy() { return canvas.height / 2 }
 
 // ── Draw helpers ──────────────────────────────────────────────────
 function drawFace(rank, suit, x, y) {
   const { sx, sy } = SPRITE[rank]
-  ctx.drawImage(assets.suits[suit], sx, sy, CARD_W, CARD_H, x, y, CARD_W, CARD_H)
+  ctx.drawImage(assets.suits[suit], sx, sy, BASE_W, BASE_H, x, y, cw, ch)
 }
 
 function drawBack(x, y) {
-  ctx.drawImage(assets.back, 0, 0, CARD_W, CARD_H, x, y, CARD_W, CARD_H)
+  ctx.drawImage(assets.back, 0, 0, BASE_W, BASE_H, x, y, cw, ch)
 }
 
-// Rotated card back: (px,py) = canvas center of the card, angle in radians
+// (px, py) = canvas centre of the card
 function drawBackRotated(px, py, angle) {
   ctx.save()
   ctx.translate(px, py)
   ctx.rotate(angle)
-  ctx.drawImage(assets.back, 0, 0, CARD_W, CARD_H, -CARD_W / 2, -CARD_H / 2, CARD_W, CARD_H)
+  ctx.drawImage(assets.back, 0, 0, BASE_W, BASE_H, -cw / 2, -ch / 2, cw, ch)
   ctx.restore()
 }
 
 function drawName(text, x, y, isAlly, align = 'center') {
   ctx.save()
-  ctx.font         = 'bold 15px Georgia, serif'
+  ctx.font         = `bold ${Math.round(15 * Math.max(0.8, scale))}px Georgia, serif`
   ctx.textAlign    = align
   ctx.textBaseline = 'middle'
+  ctx.lineJoin     = 'round'
+  ctx.lineWidth    = 3
+  ctx.strokeStyle  = 'rgba(0,0,0,0.75)'
+  ctx.strokeText(text, x, y)
   ctx.fillStyle    = isAlly ? '#6ab0ff' : '#ff7070'
   ctx.fillText(text, x, y)
   ctx.restore()
@@ -311,30 +354,30 @@ function drawName(text, x, y, isAlly, align = 'center') {
 function drawSouth() {
   const { nickname, isAlly } = seat('south')
   const n  = state.myHand.length
-  const y  = canvas.height - CARD_H - 24
+  const y  = southY()
   const x0 = handX0(n)
 
   state.myHand.forEach(({ rank, suit }, i) => {
-    const cardX   = x0 + i * (CARD_W + HAND_GAP)
+    const cardX   = x0 + i * (cw + hgap)
     const isValid = state.isMyTurn && state.validCards.some(c => c.rank === rank && c.suit === suit)
     const cardY   = (isValid && i === hoveredCardIdx) ? y - 8 : y
     drawFace(rank, suit, cardX, cardY)
     if (state.isMyTurn && !isValid) {
       ctx.save()
       ctx.fillStyle = 'rgba(0,0,0,0.45)'
-      ctx.fillRect(cardX, cardY, CARD_W, CARD_H)
+      ctx.fillRect(cardX, cardY, cw, ch)
       ctx.restore()
     }
     if (isValid) {
       ctx.save()
       ctx.strokeStyle = '#daa520'
       ctx.lineWidth   = 3
-      ctx.strokeRect(cardX, cardY, CARD_W, CARD_H)
+      ctx.strokeRect(cardX, cardY, cw, ch)
       ctx.restore()
     }
   })
 
-  drawName(nickname, cx(), y - 22, isAlly)
+  drawName(nickname, cx(), y - 14, isAlly)
 }
 
 // ── North — face-down hand ────────────────────────────────────────
@@ -342,87 +385,96 @@ function drawNorth() {
   const s = seat('north')
   const { nickname, isAlly } = s
   const n  = s.cardCount ?? 8
-  const y  = 24
+  // Allow cards to overflow the top on mobile; show the bottom edge + name
+  const y  = scale < 1 ? -Math.round(ch * 0.35) : 24
   const x0 = handX0(n)
 
-  for (let i = 0; i < n; i++) drawBack(x0 + i * (CARD_W + HAND_GAP), y)
+  for (let i = 0; i < n; i++) drawBack(x0 + i * (cw + hgap), y)
 
-  drawName(nickname, cx(), y + CARD_H + 20, isAlly)
+  drawName(nickname, cx(), Math.max(14, y + ch + 14), isAlly)
 }
 
-// ── West — rotated 90° CW (card appears CARD_H wide × CARD_W tall) ─
+// ── West — rotated 90° CW ─────────────────────────────────────────
+// When rotated 90°: card height (ch) becomes the on-screen width,
+// card width (cw) becomes the on-screen height.
 function drawWest() {
   const s = seat('west')
   const { nickname, isAlly } = s
-  const n      = s.cardCount ?? 8
-  const rotW   = CARD_H   // 124px wide on screen
-  const rotH   = CARD_W   // 88px tall on screen
-  const totalH = n * rotH + Math.max(0, n - 1) * HAND_GAP
-  const cardCX = 20 + rotW / 2
-  const y0     = (canvas.height - totalH) / 2
+  const n    = s.cardCount ?? 8
+  const rotW = ch   // on-screen width  of one rotated card
+  const rotH = cw   // on-screen height of one rotated card
+  // Desktop: spread with gap; mobile: tight stack (can overflow)
+  const step    = scale < 1 ? 16 : rotH + hgap
+  const totalH  = rotH + Math.max(0, n - 1) * step
+  const cardCX  = 20 + rotW / 2
+  const y0      = (canvas.height - totalH) / 2
 
   for (let i = 0; i < n; i++) {
-    drawBackRotated(cardCX, y0 + i * (rotH + HAND_GAP) + rotH / 2, Math.PI / 2)
+    drawBackRotated(cardCX, y0 + i * step + rotH / 2, Math.PI / 2)
   }
 
-  drawName(nickname, 20 + rotW + 16, cy(), isAlly, 'left')
+  drawName(nickname, 20 + rotW + 10, cy(), isAlly, 'left')
 }
 
 // ── East — rotated 90° CCW ────────────────────────────────────────
 function drawEast() {
   const s = seat('east')
   const { nickname, isAlly } = s
-  const n      = s.cardCount ?? 8
-  const rotW   = CARD_H
-  const rotH   = CARD_W
-  const totalH = n * rotH + Math.max(0, n - 1) * HAND_GAP
-  const cardCX = canvas.width - 20 - rotW / 2
-  const y0     = (canvas.height - totalH) / 2
+  const n    = s.cardCount ?? 8
+  const rotW = ch
+  const rotH = cw
+  const step    = scale < 1 ? 16 : rotH + hgap
+  const totalH  = rotH + Math.max(0, n - 1) * step
+  const cardCX  = canvas.width - 20 - rotW / 2
+  const y0      = (canvas.height - totalH) / 2
 
   for (let i = 0; i < n; i++) {
-    drawBackRotated(cardCX, y0 + i * (rotH + HAND_GAP) + rotH / 2, -Math.PI / 2)
+    drawBackRotated(cardCX, y0 + i * step + rotH / 2, -Math.PI / 2)
   }
 
-  drawName(nickname, canvas.width - 20 - rotW - 16, cy(), isAlly, 'right')
+  drawName(nickname, canvas.width - 20 - rotW - 10, cy(), isAlly, 'right')
 }
 
 // ── Pli zone ──────────────────────────────────────────────────────
 function drawPli() {
-  const pcx = cx(), pcy = cy()
+  const pcx  = cx(), pcy = cy()
+  const pliW = Math.round(320 * scale)
+  const pliH = Math.round(220 * scale)
 
-  // Dashed border when zone is empty
   if (state.pli.length === 0) {
     ctx.save()
     ctx.strokeStyle = 'rgba(255,255,255,0.10)'
     ctx.lineWidth   = 1
     ctx.setLineDash([6, 4])
-    ctx.strokeRect(pcx - 160, pcy - 110, 320, 220)
+    ctx.strokeRect(pcx - pliW / 2, pcy - pliH / 2, pliW, pliH)
     ctx.restore()
     return
   }
 
-  // Fan played cards
   const n = state.pli.length
   state.pli.forEach(({ rank, suit }, i) => {
     const angle   = (i - (n - 1) / 2) * FAN_ANGLE
-    const offsetX = (i - (n - 1) / 2) * FAN_SPREAD
+    const offsetX = (i - (n - 1) / 2) * fanSpread
     const { sx, sy } = SPRITE[rank]
 
     ctx.save()
     ctx.translate(pcx + offsetX, pcy)
     ctx.rotate(angle)
-    ctx.drawImage(assets.suits[suit], sx, sy, CARD_W, CARD_H,
-      -CARD_W / 2, -CARD_H / 2, CARD_W, CARD_H)
+    ctx.drawImage(assets.suits[suit], sx, sy, BASE_W, BASE_H, -cw / 2, -ch / 2, cw, ch)
     ctx.restore()
   })
 
   if (state.trickMessage) {
     ctx.save()
-    ctx.font         = 'bold 15px Georgia, serif'
-    ctx.fillStyle    = 'rgba(240,230,200,0.92)'
+    ctx.font         = `bold ${Math.round(15 * scale)}px Georgia, serif`
     ctx.textAlign    = 'center'
     ctx.textBaseline = 'middle'
-    ctx.fillText(state.trickMessage, pcx, pcy + CARD_H / 2 + 28)
+    ctx.lineJoin     = 'round'
+    ctx.lineWidth    = 3
+    ctx.strokeStyle  = 'rgba(0,0,0,0.75)'
+    ctx.strokeText(state.trickMessage, pcx, pcy + ch / 2 + 20)
+    ctx.fillStyle    = 'rgba(240,230,200,0.92)'
+    ctx.fillText(state.trickMessage, pcx, pcy + ch / 2 + 20)
     ctx.restore()
   }
 }
@@ -447,38 +499,40 @@ function drawBidHUD() {
     turnText = `Tour : ${state.bidderNickname}`
   }
 
-  // Rows: always label + bid; optional bidder name + turn text
+  const hs = Math.max(0.75, scale)
   const rows = [
-    { text: 'ENCHÈRE', font: 'bold 10px Georgia, serif', color: 'rgba(240,230,200,0.45)', h: 16 },
-    { text: bidText,   font: 'bold 18px Georgia, serif', color: 'rgba(240,230,200,0.90)', h: 26 },
+    { text: 'ENCHÈRE', font: `bold ${Math.round(10 * hs)}px Georgia, serif`, color: 'rgba(240,230,200,0.45)', h: Math.round(16 * hs) },
+    { text: bidText,   font: `bold ${Math.round(18 * hs)}px Georgia, serif`, color: 'rgba(240,230,200,0.90)', h: Math.round(26 * hs) },
   ]
   if (state.highBidderNickname)
-    rows.push({ text: state.highBidderNickname, font: '11px Georgia, serif',   color: 'rgba(240,230,200,0.50)', h: 18 })
+    rows.push({ text: state.highBidderNickname, font: `${Math.round(11 * hs)}px Georgia, serif`,      color: 'rgba(240,230,200,0.50)', h: Math.round(18 * hs) })
   if (turnText)
-    rows.push({ text: turnText,                 font: 'bold 12px Georgia, serif', color: turnColor,                h: 18 })
+    rows.push({ text: turnText,                 font: `bold ${Math.round(12 * hs)}px Georgia, serif`, color: turnColor,                h: Math.round(18 * hs) })
 
-  const PAD_X = 20, PAD_Y = 10
-  const boxW  = 230
+  const PAD_Y = 10
+  const boxW  = Math.round(230 * hs)
   const boxH  = rows.reduce((s, r) => s + r.h, 0) + PAD_Y * 2
 
-  // Vertical: centred in the gap between pli border bottom and south hand / name
-  const gapTop    = cy() + 115                        // just below pli dashed border
-  const gapBottom = canvas.height - CARD_H - 24 - 28  // just above south player name
+  const gapTop    = cy() + Math.round(110 * scale) + 5
+  const gapBottom = southY() - 16
   const boxX = cx() - boxW / 2
   const boxY = Math.max(gapTop + 4,
                Math.min(gapBottom - boxH - 4,
                         (gapTop + gapBottom) / 2 - boxH / 2))
 
   ctx.save()
-
   ctx.fillStyle = 'rgba(0,0,0,0.30)'
   ctx.fillRect(boxX, boxY, boxW, boxH)
 
   ctx.textAlign    = 'center'
   ctx.textBaseline = 'middle'
+  ctx.lineJoin     = 'round'
+  ctx.lineWidth    = 2
+  ctx.strokeStyle  = 'rgba(0,0,0,0.75)'
   let y = boxY + PAD_Y
   for (const row of rows) {
-    ctx.font      = row.font
+    ctx.font = row.font
+    ctx.strokeText(row.text, cx(), y + row.h / 2)
     ctx.fillStyle = row.color
     ctx.fillText(row.text, cx(), y + row.h / 2)
     y += row.h
@@ -491,14 +545,23 @@ function drawBidHUD() {
 function drawTrickInfo() {
   if (!state.trickInfo) return
   const { scores, tricksPlayed } = state.trickInfo
+  const fs  = Math.round(13 * Math.max(0.8, scale))
+  const lh  = Math.round(20 * Math.max(0.8, scale))
 
   ctx.save()
-  ctx.font         = '13px Georgia, serif'
-  ctx.fillStyle    = 'rgba(240,230,200,0.55)'
+  ctx.font         = `${fs}px Georgia, serif`
   ctx.textAlign    = 'left'
   ctx.textBaseline = 'top'
-  ctx.fillText(`Plis : ${tricksPlayed + 1}/8`, 20, 20)
-  ctx.fillText(`Éq. A : ${scores.A} pts`,     20, 40)
-  ctx.fillText(`Éq. B : ${scores.B} pts`,     20, 60)
+  ctx.lineJoin     = 'round'
+  ctx.lineWidth    = 2
+  ctx.strokeStyle  = 'rgba(0,0,0,0.75)'
+  const lines = [
+    { text: `Plis : ${tricksPlayed + 1}/8`, y: 16 },
+    { text: `Éq. A : ${scores.A} pts`,      y: 16 + lh },
+    { text: `Éq. B : ${scores.B} pts`,      y: 16 + lh * 2 },
+  ]
+  for (const l of lines) ctx.strokeText(l.text, 16, l.y)
+  ctx.fillStyle = '#ffffff'
+  for (const l of lines) ctx.fillText(l.text, 16, l.y)
   ctx.restore()
 }

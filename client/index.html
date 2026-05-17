@@ -2,7 +2,7 @@
 <html lang="fr">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no" />
   <title>Contrée</title>
   <link rel="icon" type="image/png" href="/playing-cards-64.png">
 </head>
@@ -54,16 +54,18 @@
   <canvas id="game" class="screen"></canvas>
 
   <div id="bid-overlay" class="hidden">
-    <div id="bid-current-info"></div>
-    <div class="bid-selector">
-      <div id="bid-values"></div>
-      <div id="bid-suits"></div>
-    </div>
-    <div id="bid-actions">
-      <button id="btn-pass">Passer</button>
-      <button id="btn-bid" disabled>Annoncer</button>
-      <button id="btn-contree" class="hidden">Contrée !</button>
-      <button id="btn-surcontree" class="hidden">Surcontrée !</button>
+    <div id="bid-modal-box">
+      <div id="bid-current-info"></div>
+      <div class="bid-selector">
+        <div id="bid-values"></div>
+        <div id="bid-suits"></div>
+      </div>
+      <div id="bid-actions">
+        <button id="btn-pass">Passer</button>
+        <button id="btn-bid" disabled>Annoncer</button>
+        <button id="btn-contree" class="hidden">Contrée !</button>
+        <button id="btn-surcontree" class="hidden">Surcontrée !</button>
+      </div>
     </div>
   </div>
 
