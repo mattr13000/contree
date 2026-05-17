@@ -41,10 +41,14 @@ Browser → Express :PORT → serves dist/ (static) + socket.io (ws)
 ### File structure (key files)
 
 ```
-server/index.js               — Express + Socket.io server, all game state lives here
+server/index.js               — Express + Socket.io setup + all socket event handlers
+server/state.js               — the 4 state Maps (players, rooms, games, sessions) + pure helpers (migrateSocketId, getRoomList, roomPayload)
+server/game.js                — game constants, card logic (getValidCards, trickWinnerCard), deal/bid/trick flow; receives io via init()
 client/index.html             — single HTML file, all screen <div>s defined here
-client/src/main.js            — socket client singleton + all lobby/room screen logic
+client/src/main.js            — socket client + session/lobby/room/game socket handlers
 client/src/game.js            — canvas renderer + game state object (no DOM)
+client/src/bid-ui.js          — bid overlay UI state machine (button creation, refreshBidUI, applyBidUIState)
+client/src/scoring.js         — escapeHtml, computeGameScore, score state (gameScores, scoreTeamNames), updateScoreUI
 client/src/soundManager.js    — audio module: soundHover(), soundPlay()
 client/src/router.js          — showScreen(id): swaps .active class between screens
 client/src/style.css          — all styles (lobby panels + screen system)
@@ -192,9 +196,9 @@ state = {
 position = ['south','west','north','east'][(myIdx + offset) % 4]
 ```
 
-**Render pipeline:** `render()` → `drawNorth()`, `drawWest()`, `drawEast()`, `drawPli()`, `drawSouth()`, `drawBidHUD()`, `drawTrickInfo()`. Called on resize and after any state mutation. Guards with `if (!canvas) return` so safe to call before init.
+**Render pipeline:** `render()` → `drawNorth()`, `drawWest()`, `drawEast()`, `drawPli()`, then `drawSouth()` — but during `state.isMyTurn`, south is drawn *after* `drawBidHUD()` and `drawTrickInfo()` so the hand sits above all HUD elements. Guards with `if (!canvas) return` so safe to call before init.
 
-**South hand interaction:** click/mousemove listeners on canvas hit-test the south hand. Valid cards get a gold `#daa520` border and lift 8px on hover; invalid cards are dimmed with a 45% black overlay. Cursor becomes `pointer` on hoverable valid cards.
+**South hand interaction:** click/mousemove listeners on canvas hit-test the south hand. Valid cards get a gold `#daa520` border and lift 8px on hover; invalid cards are dimmed with a 45% black overlay. Cursor becomes `pointer` on hoverable valid cards. A `touchstart` listener (passive: false, calls `preventDefault`) translates touch coords and calls the same click handler for immediate mobile response.
 
 **Sound:** `soundManager.js` exports:
 - `soundHover()` — fires when cursor enters a new valid card (volume 0.4)
@@ -208,13 +212,24 @@ position = ['south','west','north','east'][(myIdx + offset) % 4]
 
 **Sprite sheets:** `client/public/Cards/Topdown/{Suit}-88x124.png` — 5-column × 3-row grid. The 8 Contrée ranks and their sprite coordinates are in the `SPRITE` constant. `Card_Back-88x124.png` for face-down cards. Side players (west/east) use `ctx.rotate(±π/2)` to render landscape. All static assets live in `client/public/` and are served by Vite in dev, copied to `dist/` on build.
 
-**Pli fan:** up to 4 cards, fanned at `FAN_ANGLE = π/18` (10°) intervals, spread by `FAN_SPREAD = 22px` horizontally. Both constants are easy to tune.
+**Pli fan:** up to 4 cards, fanned at `FAN_ANGLE = π/18` (10°) intervals, spread by `BASE_FAN_SPREAD = 22px` horizontally (scaled with `fanSpread`). Both constants are easy to tune.
 
 **Team colors:** `isAlly: true` → `#6ab0ff` (blue), `isAlly: false` → `#ff7070` (red). Computed from team field (`'A'` or `'B'`): South+North = A, West+East = B.
 
 **HUD layout:**
-- Centre (between pli zone and south hand): `drawBidHUD()` — black `rgba(0,0,0,0.3)` box containing: ENCHÈRE label, bid value + suit + contree status, high bidder's nickname, turn indicator ("Votre tour !" in gold). Vertically centred in the gap between the pli dashed border (`cy()+115`) and the south player name.
-- Top-left: `drawTrickInfo()` — current trick number (N/8, starts at 1), running scores for both teams (only during playing phase)
+- **Bid HUD (`drawBidHUD`):** during bid phase (or desktop/portrait) — `rgba(0,0,0,0.3)` box centred between the pli dashed border and the south hand, containing ENCHÈRE label, bid value + suit + contree status, high bidder's nickname, turn indicator ("Votre tour !" in gold). On mobile landscape during play phase — compact single-line badge (e.g. `80 ♥` or `100 ♠ CONTRÉ`) right-aligned at top-right of canvas.
+- **Trick HUD (`drawTrickInfo`):** top-left, dark background box auto-sized to text, current trick number (N/8), running scores A/B. Font is 2× larger on mobile (any orientation) during play phase vs desktop.
+- All canvas text uses `ctx.strokeText` (black, `rgba(0,0,0,0.75)`) before `ctx.fillText` for readability on all backgrounds.
+
+**Mobile responsiveness:** the game targets landscape mobile as the primary small-screen layout. Key behaviours:
+- `getScale()` returns `min(1, minDim/600)` clamped to 0.5. All card dimensions (`cw`, `ch`, `hgap`, `fanSpread`) and pli zone size are derived from `scale` on every `resize()`. Sprite source coords stay at native 88×124; only the destination rect scales.
+- `landscape` flag (`innerWidth > innerHeight`) is recomputed on resize and gates the top-right HUD layout.
+- `southY()`: at rest on mobile ~55% of the card is visible (bottom cut off); during the player's play-phase turn the hand pops fully visible. Portrait or desktop: full card + margin.
+- West/East opponents: `step = 16px` on mobile (tight stack, can overflow) vs `rotH + hgap` on desktop.
+- North opponent: shifted up so cards partially overflow the top edge on mobile.
+- `touch-action: none` on `#game` canvas; `user-scalable=no` in viewport meta.
+
+**Bid overlay (`#bid-overlay`):** full-screen backdrop (`inset:0`, `rgba(0,0,0,0.55)`) with centred inner `#bid-modal-box`. Shown only when it is the local player's turn to bid. Does **not** cause the south hand to pop (hand pop is play-phase only). Mobile breakpoint increases button min-heights for touch targets.
 
 **Announcement overlays:** three fixed-position divs shown over the canvas with slam-in animations, all pointer-events none, font Impact, `z-index: 100`.
 - `#surcontree-announcement` — yellow (`#ffe066`), flies from right, hidden on `game:play-start` (no auto-hide timer since `game:play-start` fires after 1.5s).
@@ -232,14 +247,14 @@ position = ['south','west','north','east'][(myIdx + offset) % 4]
 - **Step B — Server game init + dealing:** seat assignment, shuffle/deal, `game:dealt` emitted individually, server-side `games` Map stores hands for future validation.
 - **Step C — Bidding phase:** full bidding state machine (80–Capot, named suit), contree/surcontree, all-pass redeal with advancing dealer, HTML overlay with value/suit selector, bid won → `game:play-start` + `emitPlayState`. Surcontrée immediately ends bidding (no further passes needed) and triggers a 1.5s "Surcontré !" slam animation before play starts. Seat order shuffled once per session on first deal (then fixed); dealer index rotates each game. Contré/Surcontré/Belote/Rebelote each have a slam-in announcement overlay.
 - **Step D — Trick play phase:** card validation (follow suit, trump obligation, overtrump, partner exception), trick resolution, scoring (trump/non-trump points, dix de der), belote/rebelote detection, 8 tricks → `game:over`. Client: click-to-play, gold highlight on valid cards, dim on invalid, trick score HUD, "X remporte le pli" message.
-- **Step E — Scoring + score table:** official French Contrée scoring implemented client-side in `computeGameScore()` (`main.js`). Per-game modal shows raw card points; score table accumulates contract-adjusted points toward 500. Auto-redeals every 8s after game end.
+- **Step E — Scoring + score table:** official French Contrée scoring implemented client-side in `computeGameScore()` (`scoring.js`). Per-game modal shows raw card points; score table accumulates contract-adjusted points toward 500. Auto-redeals every 8s after game end.
+- **Mobile support:** dynamic card scaling, touch input, landscape-aware Game HUD (Bid Badge top-right + Trick HUD top-left at 2× font with dark backing), south hand pops fully visible on player's turn (play phase only), west/east opponents tightly stacked, bid overlay converted to centred modal with backdrop.
+- **Security hardening:** all player nicknames HTML-escaped via `escapeHtml()` (`scoring.js`) before insertion into `innerHTML` (waiting room slots, game-over result, score table headers). `bidWon()` in `server/game.js` guards against null game so a surcontree setTimeout firing after a room empties cannot crash the server.
+- **Refactor:** server split into `state.js` / `game.js` / `index.js`; client `main.js` split into `main.js` / `bid-ui.js` / `scoring.js`.
 
 ### Known bugs
 
-- **Crash at pli 7/8 on Railway deploy** — defensive null-checks added to `resolveTrick` (guards `winnerSeat`) and `emitPlayState` (guards `hands[current.socketId]`), both with `console.error` logging to surface the root cause in Railway logs. Root cause not yet confirmed.
-
-### Pending refactor (low priority)
-`server/index.js` is ~750 lines. Planned split into `server/state.js` (pure helpers + constants), `server/game.js` (deal/bid/trick logic), `server/index.js` (Express + socket handlers).
+- **Crash at pli 7/8 on Railway deploy** — root cause identified and fixed. Two issues: (1) missing `game:over` logic caused the server to attempt a 9th trick (fixed by the `isLast` check in `resolveTrick`); (2) `migrateSocketId` was not updating `trickState.trick` socketIds, so if a player reconnected mid-trick their card became unresolvable (fixed in `server/state.js`). Defensive null-checks in `resolveTrick` and `emitPlayState` remain as safety nets. Full 8-trick game + reconnect-mid-trick verified by `scripts/test-game.js`.
 
 ### Next step
 
@@ -258,7 +273,7 @@ position = ['south','west','north','east'][(myIdx + offset) % 4]
 - **No "sans atout" / "tout atout" variants.** No figure announcements (tierces, carrés, etc.) before scoring.
 - **All pass → redeal** with next dealer (dealerIdx advances by 1).
 
-### Official scoring rules (implemented in `computeGameScore`, `main.js`)
+### Official scoring rules (implemented in `computeGameScore`, `scoring.js`)
 - **Fulfilled:** bidding team scores exactly their bid value (excess card points discarded); opponent scores 0. Both teams add their belote bonus on top.
 - **Chute:** bidding team scores 0; opponent scores 160. Both teams add their belote bonus on top.
 - **Contree multiplier:** ×2 applied to the whole result (fulfilled: bid×2; chute: 160×2=320).

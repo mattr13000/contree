@@ -2,7 +2,14 @@
   "permissions": {
     "allow": [
       "Bash(npm run *)",
-      "Bash(node --input-type=module)"
+      "Bash(node --input-type=module)",
+      "Bash(Get-Content \"C:\\\\Users\\\\ROLLAND\\\\Documents\\\\www\\\\contree\\\\server\\\\state.js\")",
+      "Bash(Measure-Object -Line)",
+      "Bash(Get-Content \"C:\\\\Users\\\\ROLLAND\\\\Documents\\\\www\\\\contree\\\\server\\\\game.js\")",
+      "Bash(Get-Content \"C:\\\\Users\\\\ROLLAND\\\\Documents\\\\www\\\\contree\\\\server\\\\index.js\")",
+      "PowerShell(Get-Content *)",
+      "PowerShell(Stop-Process *)",
+      "PowerShell(Test-Path *)"
     ]
   }
 }
