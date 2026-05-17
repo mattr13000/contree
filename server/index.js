@@ -550,6 +550,7 @@ io.on('connection', socket => {
     bidding.passCount++
     bidding.currentBidderIdx = (bidding.currentBidderIdx + 1) % 4
 
+    io.to(player.roomId).emit('bid:contree-announced')
     if (bidding.passCount >= 3) { bidWon(player.roomId); return }
     emitBidState(player.roomId)
   })

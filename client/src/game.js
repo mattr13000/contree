@@ -143,6 +143,18 @@ function handleCanvasMouseMove(e) {
   canvas.style.cursor = pointer ? 'pointer' : 'default'
 }
 
+const SUIT_ORDER = { Hearts: 0, Spades: 1, Diamonds: 2, Clubs: 3 }
+const RANK_ORDER       = { A: 0, '10': 1, K: 2, Q: 3, J: 4, '9': 5, '8': 6, '7': 7 }
+const RANK_ORDER_TRUMP = { J: 0, '9': 1, A: 2, '10': 3, K: 4, Q: 5, '8': 6, '7': 7 }
+function sortHand(hand, trump = null) {
+  return [...hand].sort((a, b) => {
+    const suitDiff = SUIT_ORDER[a.suit] - SUIT_ORDER[b.suit]
+    if (suitDiff !== 0) return suitDiff
+    const order = trump && a.suit === trump ? RANK_ORDER_TRUMP : RANK_ORDER
+    return order[a.rank] - order[b.rank]
+  })
+}
+
 // ── Apply server deal ─────────────────────────────────────────────
 // Clockwise visual order from me: south(me) → west(left) → north(ally) → east(right)
 export function applyDealt(data) {
@@ -162,7 +174,7 @@ export function applyDealt(data) {
     }
   })
 
-  state.myHand             = data.myHand
+  state.myHand             = sortHand(data.myHand)
   state.pli                = []
   state.bid                = null
   state.bidderNickname     = null
@@ -184,6 +196,7 @@ export function applyPlayStart(data) {
   state.bid            = data.bid
   state.trump          = data.trump
   state.bidderNickname = null
+  state.myHand         = sortHand(state.myHand, data.trump)
   render()
 }
 
@@ -223,6 +236,8 @@ export function applyYourTurn(data) {
 }
 
 export function applyTrickWon(data) {
+  const lastCard = data.trick[data.trick.length - 1]
+  if (lastCard?.socketId !== state.mySocketId) soundPlay()
   state.pli          = data.trick.map(({ rank, suit }) => ({ rank, suit }))
   state.trickMessage = `${data.winnerNickname} remporte le pli`
   if (state.trickInfo) {

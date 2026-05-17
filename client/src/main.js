@@ -2,7 +2,21 @@ import { io } from 'socket.io-client'
 import { showScreen } from './router.js'
 import { initGame, applyDealt, applyBidState, applyPlayStart,
          applyPlayState, applyYourTurn, applyTrickWon, setOnCardPlay, state } from './game.js'
+import { toggleMute, startMusic, toggleMusicMute } from './soundManager.js'
 import './style.css'
+
+const muteBtn  = document.getElementById('mute-btn')
+const musicBtn = document.getElementById('music-btn')
+
+muteBtn.addEventListener('click', () => {
+  const muted = toggleMute()
+  muteBtn.textContent = muted ? '🔇' : '🔊'
+})
+
+musicBtn.addEventListener('click', () => {
+  const muted = toggleMusicMute()
+  musicBtn.classList.toggle('muted', muted)
+})
 
 const socket = io()
 setOnCardPlay(card => socket.emit('play:card', card))
@@ -16,6 +30,8 @@ socket.on('connect', () => {
 socket.on('session:ready', ({ sessionId, restored }) => {
   sessionStorage.setItem('sessionId', sessionId)
   if (!restored) return   // fresh start — nickname screen already visible
+
+  startMusic()
 
   if (restored.state === 'lobby') {
     document.getElementById('lobby-greeting').textContent = `Bonjour, ${restored.nickname} !`
@@ -49,7 +65,7 @@ const btnEnter      = document.getElementById('btn-enter')
 
 function submitNickname() {
   const nick = inputNickname.value.trim()
-  if (nick) socket.emit('nickname:set', nick)
+  if (nick) { startMusic(); socket.emit('nickname:set', nick) }
 }
 
 btnEnter.addEventListener('click', submitNickname)
@@ -319,6 +335,7 @@ socket.on('bid:state', data => {
 socket.on('game:play-start', data => {
   bidOverlay.classList.add('hidden')
   document.getElementById('surcontree-announcement').classList.add('hidden')
+  document.getElementById('contree-announcement').classList.add('hidden')
   currentBidState = null
   applyPlayStart(data)
 })
@@ -346,13 +363,27 @@ btnSurcontree.addEventListener('click', () => {
   bidOverlay.classList.add('hidden')
 })
 
+function flashAnnouncement(id, text, duration = 2000) {
+  const el = document.getElementById(id)
+  if (text !== undefined) el.textContent = text
+  el.classList.remove('hidden')
+  el.style.animation = 'none'
+  el.offsetHeight
+  el.style.animation = ''
+  clearTimeout(el._hideTimer)
+  el._hideTimer = setTimeout(() => el.classList.add('hidden'), duration)
+}
+
+socket.on('bid:contree-announced', () => {
+  flashAnnouncement('contree-announcement', undefined, 2000)
+})
+
 socket.on('bid:surcontree-announced', () => {
   bidOverlay.classList.add('hidden')
   const el = document.getElementById('surcontree-announcement')
   el.classList.remove('hidden')
-  // Reset animation so it replays if triggered again
   el.style.animation = 'none'
-  el.offsetHeight   // force reflow
+  el.offsetHeight
   el.style.animation = ''
 })
 
@@ -360,8 +391,9 @@ socket.on('bid:surcontree-announced', () => {
 socket.on('play:state',    data => applyPlayState(data))
 socket.on('play:your-turn', data => applyYourTurn(data))
 socket.on('trick:won',     data => applyTrickWon(data))
-socket.on('play:belote',   ({ nickname, type }) => {
-  console.log(`[belote] ${nickname} : ${type}`)
+socket.on('play:belote', ({ nickname, type }) => {
+  const label = type === 'rebelote' ? `Rebelote ! (${nickname})` : `Belote ! (${nickname})`
+  flashAnnouncement('belote-announcement', label, 2500)
 })
 socket.on('game:over', ({ scores, tricksWon, beloteBonus, bid }) => {
   const myTeam    = state.seats[0].team

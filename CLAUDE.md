@@ -170,13 +170,15 @@ state = {
 ```
 
 **Exported mutators** (called from `main.js` on socket events):
-- `applyDealt(data)` — maps server seat order to visual layout, resets state
+- `applyDealt(data)` — maps server seat order to visual layout, resets state; sorts hand by suit then non-trump power
 - `applyBidState(data)` — updates bid HUD + bidderNickname
-- `applyPlayStart(data)` — stores final bid + trump
+- `applyPlayStart(data)` — stores final bid + trump; re-sorts hand so trump suit uses trump power (J > 9 > A > 10 > K > Q > 8 > 7)
 - `applyPlayState(data)` — updates pli, isMyTurn, trickInfo; clears trickMessage
 - `applyYourTurn(data)` — sets validCards, triggers highlight re-render
 - `applyTrickWon(data)` — sets trickMessage + updates scores
 - `setOnCardPlay(cb)` — registers callback fired when local player clicks a valid card
+
+**Hand sorting (`sortHand(hand, trump)`):** called on deal and again on play-start. Suit order: Hearts > Spades > Diamonds > Clubs. Non-trump rank order: A > 10 > K > Q > J > 9 > 8 > 7. Trump rank order: J > 9 > A > 10 > K > Q > 8 > 7. Constants `RANK_ORDER` and `RANK_ORDER_TRUMP` live at the top of `game.js`.
 
 **Seat positions** are always visual (relative to the current player), not absolute:
 - `south` = me (bottom)
@@ -193,7 +195,13 @@ position = ['south','west','north','east'][(myIdx + offset) % 4]
 
 **South hand interaction:** click/mousemove listeners on canvas hit-test the south hand. Valid cards get a gold `#daa520` border and lift 8px on hover; invalid cards are dimmed with a 45% black overlay. Cursor becomes `pointer` on hoverable valid cards.
 
-**Sound:** `soundManager.js` exports `soundHover()` (fires when cursor enters a new valid card) and `soundPlay()` (fires on local card click; also fired in `applyPlayState` for opponent cards when the trick grows). Both reset `currentTime` before play so rapid triggers don't get swallowed.
+**Sound:** `soundManager.js` exports:
+- `soundHover()` — fires when cursor enters a new valid card (volume 0.4)
+- `soundPlay()` — fires on local card click; also fired in `applyPlayState` for opponent cards when the trick grows; also fired in `applyTrickWon` for the 4th card (which skips `applyPlayState`) when the completing card wasn't the local player's. Volume 0.5. Both SFX reset `currentTime` before play so rapid triggers don't get swallowed.
+- `startMusic()` — starts `game-music.mp3` looping at volume 0.25 with a 2-second fade-in from 0. Guard prevents re-triggering on reconnect. Called in `submitNickname()` (user gesture) and in the `session:restored` handler (covers page reload). Music never restarts mid-session.
+- `toggleMute()` / `toggleMusicMute()` — flip muted state; `music.muted` used for music so loop stays in sync.
+
+**Media buttons** (bottom-right, `#music-btn` + `#mute-btn`): both visible from lobby onward (screen-lobby, screen-room-list, screen-waiting, game). `#music-btn` at `right: 68px`, `#mute-btn` at `right: 16px`. Music button always shows `♪`; a CSS `::after` red diagonal slash is added via `.muted` class when muted — no icon swap. Sound button swaps 🔊/🔇 via `textContent`. Visibility controlled by CSS sibling selectors (`#screen-lobby.active ~ #mute-btn` etc.).
 
 **Opponent hand counts:** each seat has a `cardCount` field (initialized to 8 on deal). `applyPlayState` decrements it per opponent based on `tricksPlayed` + whether they've already played in the current trick. `applyTrickWon` sets all opponents to `8 - tricksPlayed`. `drawNorth/West/East` use `seat.cardCount ?? 8`.
 
