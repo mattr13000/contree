@@ -46,21 +46,28 @@ function refreshBidUI() {
     bidCurrentEl.textContent = 'Aucune enchère pour l\'instant'
   }
 
+  const isContreed = !!(currentBidState?.contree)
+
+  if (isContreed) {
+    selectedValue = null
+    selectedSuit  = null
+  }
+
   bidValuesEl.querySelectorAll('button').forEach(btn => {
     const v = btn.dataset.value === 'Capot' ? 'Capot' : parseInt(btn.dataset.value)
-    btn.disabled = !!(high && bidNumeric(v) <= bidNumeric(high.value))
-    btn.classList.toggle('selected', String(v) === String(selectedValue))
+    btn.disabled = isContreed || !!(high && bidNumeric(v) <= bidNumeric(high.value))
+    btn.classList.toggle('selected', !isContreed && String(v) === String(selectedValue))
   })
 
   bidSuitsEl.querySelectorAll('button').forEach(btn => {
-    btn.classList.toggle('selected', btn.dataset.suit === selectedSuit)
+    btn.classList.toggle('selected', !isContreed && btn.dataset.suit === selectedSuit)
   })
 
-  if (selectedValue !== null && high && bidNumeric(selectedValue) <= bidNumeric(high.value)) {
+  if (!isContreed && selectedValue !== null && high && bidNumeric(selectedValue) <= bidNumeric(high.value)) {
     selectedValue = null
   }
 
-  const canBid = selectedValue !== null && selectedSuit !== null &&
+  const canBid = !isContreed && selectedValue !== null && selectedSuit !== null &&
     (!high || bidNumeric(selectedValue) > bidNumeric(high.value))
   btnBid.disabled = !canBid
 
@@ -96,8 +103,18 @@ export function initBidUI({ onPass, onBid, onContree, onSurcontree }) {
     selectedSuit  = null
     hideBidOverlay()
   })
-  btnContree.addEventListener('click', () => { onContree(); hideBidOverlay() })
-  btnSurcontree.addEventListener('click', () => { onSurcontree(); hideBidOverlay() })
+  btnContree.addEventListener('click', () => {
+    hideBidOverlay()
+    const high = currentBidState?.highBid
+    const sym  = SUIT_LABELS[high?.suit] ?? high?.suit
+    showContrerModal('Contrer ?', `${high?.value} ${sym}`, 'contree')
+  })
+  btnSurcontree.addEventListener('click', () => {
+    hideBidOverlay()
+    const high = currentBidState?.highBid
+    const sym  = SUIT_LABELS[high?.suit] ?? high?.suit
+    showContrerModal('Surcontrer ?', `${high?.value} ${sym} — CONTRÉ`, 'surcontree')
+  })
 
   // Contrer/surcontrer modal buttons
   document.getElementById('btn-contrer-oui').addEventListener('click', () => {
@@ -128,22 +145,7 @@ export function applyBidUIState(data, socketId, myTeam) {
     return
   }
 
-  const high          = data.highBid
-  const iAmHighBidder = high?.team === myTeam
-  const canContree    = !!(high && !iAmHighBidder && data.contree === false)
-  const canSurcontree = !!(high &&  iAmHighBidder && data.contree === 'contree')
-
-  if (canSurcontree) {
-    hideBidOverlay()
-    const sym = SUIT_LABELS[high.suit] ?? high.suit
-    showContrerModal('Surcontrer ?', `${high.value} ${sym} — CONTRÉ`, 'surcontree')
-  } else if (canContree) {
-    hideBidOverlay()
-    const sym = SUIT_LABELS[high.suit] ?? high.suit
-    showContrerModal('Contrer ?', `${high.value} ${sym}`, 'contree')
-  } else {
-    hideContrerModal()
-    refreshBidUI()
-    bidOverlay.classList.remove('hidden')
-  }
+  hideContrerModal()
+  refreshBidUI()
+  bidOverlay.classList.remove('hidden')
 }

@@ -226,7 +226,7 @@ position = ['south','west','north','east'][(myIdx + offset) % 4]
 - `drawName` accepts `isCurrentTurn` and `isLeader` flags:
   - `isCurrentTurn` — thin gold `#daa520` rect around the nickname. Active for the current bidder (bidding, via `bidderSocketId`) and current player (play, via `trickInfo.currentPlayerSocketId`). Helper `isTurnSeat(socketId)` picks the right source.
   - `isLeader` — gold ★ above the nickname marking the trick leader (`trickInfo.trickLeaderSocketId`). Play phase only.
-- `drawSeatBidAction(action, x, y, align)` — draws a small label just below the nickname showing the seat's `lastBidAction`. Only rendered when `state.trickInfo === null` (bidding phase). Format: `"80 ♥"` (cream/red by suit), `"Passe"` (grey), `"Contré"` (purple). Each seat accumulates its own last action independently so all 4 labels can be visible simultaneously.
+- `drawSeatBidAction(action, x, y, align)` — draws a label just below the nickname showing the seat's `lastBidAction`. Same font size as the nickname (`15 * Math.max(0.8, scale)` px). Only rendered when `state.trickInfo === null` (bidding phase). Format: `"80 ♥"` (cream/red by suit), `"Passe"` (grey), `"Contré"` (purple). Each seat accumulates its own last action independently so all 4 labels can be visible simultaneously. For south (local player), the name is positioned high enough above the hand that both name and bid label clear the cards: `nameY = southY() - 11 - round(nameFH * 1.5)`.
 
 **HUD layout:**
 - **Bid HUD (`drawBidHUD`):** during bid phase (or desktop/portrait) — `rgba(0,0,0,0.3)` box centred between the pli dashed border and the south hand, containing ENCHÈRE label, **current bid value at 36px white** (2× the previous 18px cream), high bidder's nickname, turn indicator ("Votre tour !" in gold or "Tour : X" derived live from `bidderSocketId` + `state.seats`). On mobile landscape during play phase — compact single-line badge right-aligned at top-right of canvas.
@@ -243,10 +243,12 @@ position = ['south','west','north','east'][(myIdx + offset) % 4]
 
 **Bid overlay (`#bid-overlay`):** full-screen backdrop (`inset:0`, `rgba(0,0,0,0.55)`) with centred inner `#bid-modal-box`. Shown only when it is the local player's turn to bid AND no contrer/surcontrer modal is warranted. Does **not** cause the south hand to pop (hand pop is play-phase only). Mobile breakpoint increases button min-heights for touch targets.
 
-**Contrer/Surcontrer modal (`#contrer-modal`):** replaces the regular bid overlay when the local player can contrer or surcontrer. Shows a focused prompt — `"Contrer ?"` or `"Surcontrer ?"` with the current bid label (e.g. `80 ♥`) and two buttons:
+**Contrer/Surcontrer modal (`#contrer-modal`):** confirmation prompt shown when the local player explicitly clicks the "Contrée !" or "Surcontrée !" button in the regular bid overlay. `applyBidUIState` always opens the regular bid overlay first — the modal never auto-triggers. Shows `"Contrer ?"` or `"Surcontrer ?"` with the current bid label (e.g. `80 ♥`) and two buttons:
 - **Oui** → fires `bid:contree` or `bid:surcontree`, closes modal.
-- **Non** → closes modal, opens the regular bid overlay (so the player can still pass or place a higher bid).
-Managed by `applyBidUIState` in `bid-ui.js`. `hideBidOverlay()` also closes this modal, ensuring it disappears on `game:play-start` and after actions.
+- **Non** → closes modal, reopens the regular bid overlay (so the player can still pass or place a higher bid).
+Managed by `bid-ui.js`. `hideBidOverlay()` also closes this modal, ensuring it disappears on `game:play-start` and after actions.
+
+**Contrée bid lock:** once `contree` is active (`currentBidState.contree` is truthy), `refreshBidUI` disables all value buttons, clears any selection, and forces `btnBid.disabled = true`. Only "Passer" and "Surcontrée !" remain actionable.
 
 **Bid action announcement (`#bid-action-announcement`):** `z-index: 50`, pop-in scale animation, `pointer-events: none`. Shown for 1.5s on every bid or pass during bidding. Format: `"80 ♥ (Alice)"` (suit colored red for hearts/diamonds) or `"Passe (Alice)"` (grey). Contrée type skips the text (the "Contré !" slam handles it) but still triggers the 1.5s delay. Cleared on `game:play-start`.
 
@@ -281,6 +283,10 @@ Managed by `applyBidUIState` in `bid-ui.js`. `hideBidOverlay()` also closes this
 - **Bid action announcements + UI delay:** `bid:state` now carries `lastAction: { type, socketId, nickname, value?, suit? }` (set in all three bid handlers). Client shows a 1.5s pop-in announcement (`#bid-action-announcement`) for every bid/pass and delays the bid UI by the same duration, preventing the contrer modal from appearing immediately after another player's action.
 - **Per-seat bid history labels:** each seat has `lastBidAction` (set in `applyBidState` by matching `lastAction.socketId`). `drawSeatBidAction` renders a small label below each nickname during the bidding phase only (`trickInfo === null`). Labels accumulate independently — all 4 can be visible at once. Cleared on new deal (`applyDealt` rebuilds seats with `lastBidAction: null`).
 - **Bid HUD value size:** current bid value row in `drawBidHUD` is now 36px white (`#ffffff`) instead of 18px cream — 2× larger for readability.
+- **`room:start` phase guard:** `room:start` now returns early if `games.get(player.roomId)` already exists (any phase: bidding, playing, or ended). Prevents calling `deal()` on a room with an active or completed game, which would silently inherit `cumulativeScores ≥ 500` from the previous session and trigger a premature `game:victory` after the very first deal.
+- **Contrer/Surcontrer modal flow fixed:** `applyBidUIState` no longer auto-opens the contrer modal when `canContree`/`canSurcontree` is true. It always shows the regular bid overlay. The modal is now triggered exclusively by clicking the "Contrée !" / "Surcontrée !" buttons.
+- **Contrée bid lock:** `refreshBidUI` disables all value buttons and the "Annoncer" button when `currentBidState.contree` is truthy — only "Passer" and "Surcontrée !" remain clickable after a contrée is declared.
+- **Per-seat bid label size:** `drawSeatBidAction` now uses the same font size as `drawName` (`15 * Math.max(0.8, scale)` px, was 10px). South name is repositioned higher (`southY() - 11 - nameFH * 1.5`) so both name and bid text are fully visible above the hand at all screen sizes.
 
 ### Known bugs
 
