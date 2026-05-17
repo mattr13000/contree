@@ -169,6 +169,7 @@ io.on('connection', socket => {
     if (!player?.roomId) return
     const room = rooms.get(player.roomId)
     if (!room || room.creatorId !== socket.id || room.players.length !== 4) return
+    if (games.get(player.roomId)) return
     deal(room)
   })
 

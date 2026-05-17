@@ -364,7 +364,7 @@ function isTurnSeat(socketId) {
 const BID_ACTION_SUIT_SYMS = { Hearts: '♥', Diamonds: '♦', Clubs: '♣', Spades: '♠' }
 function drawSeatBidAction(action, x, y, align) {
   if (!action || state.trickInfo !== null) return
-  const fs = Math.round(10 * Math.max(0.8, scale))
+  const fs = Math.round(15 * Math.max(0.8, scale))
   let label, color
   if (action.type === 'bid') {
     const sym = BID_ACTION_SUIT_SYMS[action.suit] ?? action.suit
@@ -470,8 +470,9 @@ function drawSouth() {
   })
 
   const isLeaderS  = !!(state.trickInfo?.trickLeaderSocketId === socketId)
-  const nameY_S    = y - 14
   const nameFH_S   = Math.round(15 * Math.max(0.8, scale))
+  // Position name high enough that bid-action text (same font size, drawn below) clears the cards
+  const nameY_S    = y - 11 - Math.round(nameFH_S * 1.5)
   drawName(nickname, cx(), nameY_S, isAlly, 'center', isTurnSeat(socketId), isLeaderS)
   drawSeatBidAction(s.lastBidAction, cx(), nameY_S + Math.ceil(nameFH_S / 2) + 3, 'center')
 }
