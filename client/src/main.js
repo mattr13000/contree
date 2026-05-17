@@ -3,6 +3,9 @@ import { showScreen } from './router.js'
 import { initGame, applyDealt, applyBidState, applyPlayStart,
          applyPlayState, applyYourTurn, applyTrickWon, setOnCardPlay, state } from './game.js'
 import { toggleMute, startMusic, toggleMusicMute } from './soundManager.js'
+import { escapeHtml, computeGameScore, resetScores, setTeamNames,
+         recordGameResult, updateScoreUI } from './scoring.js'
+import { initBidUI, hideBidOverlay, applyBidUIState } from './bid-ui.js'
 import './style.css'
 
 const muteBtn  = document.getElementById('mute-btn')
@@ -12,7 +15,6 @@ muteBtn.addEventListener('click', () => {
   const muted = toggleMute()
   muteBtn.textContent = muted ? '🔇' : '🔊'
 })
-
 musicBtn.addEventListener('click', () => {
   const muted = toggleMusicMute()
   musicBtn.classList.toggle('muted', muted)
@@ -21,15 +23,27 @@ musicBtn.addEventListener('click', () => {
 const socket = io()
 setOnCardPlay(card => socket.emit('play:card', card))
 
-// ── Session (reconnect support) ───────────────────────────────────
-// Fires on first connect AND every socket.io auto-reconnect
+// Autoplay is blocked until a user gesture; retry music on the first interaction
+document.addEventListener('click',      () => startMusic(), { once: true })
+document.addEventListener('touchstart', () => startMusic(), { once: true, passive: true })
+
+initBidUI({
+  onPass:       ()     => socket.emit('bid:pass'),
+  onBid:        (v, s) => socket.emit('bid:place', { value: v, suit: s }),
+  onContree:    ()     => socket.emit('bid:contree'),
+  onSurcontree: ()     => socket.emit('bid:surcontree'),
+})
+
+// ── Session ───────────────────────────────────────────────────────
+let myTeam = null
+
 socket.on('connect', () => {
   socket.emit('session:restore', sessionStorage.getItem('sessionId') || null)
 })
 
 socket.on('session:ready', ({ sessionId, restored }) => {
   sessionStorage.setItem('sessionId', sessionId)
-  if (!restored) return   // fresh start — nickname screen already visible
+  if (!restored) return
 
   startMusic()
 
@@ -45,21 +59,16 @@ socket.on('session:ready', ({ sessionId, restored }) => {
     initGame(document.getElementById('game'), socket.id).then(() => {
       applyDealt(restored.dealt)
       if (restored.bidState) {
-        currentBidState = restored.bidState
         applyBidState(restored.bidState)
-        if (restored.bidState.currentBidderSocketId === socket.id) {
-          refreshBidUI()
-          bidOverlay.classList.remove('hidden')
-        }
+        applyBidUIState(restored.bidState, socket.id, myTeam)
       } else if (restored.playState) {
         applyPlayState(restored.playState)
-        // play:your-turn will arrive separately via server's emitPlayState call
       }
     })
   }
 })
 
-// ── Nickname ─────────────────────────────────────────────────────
+// ── Nickname ──────────────────────────────────────────────────────
 const inputNickname = document.getElementById('input-nickname')
 const btnEnter      = document.getElementById('btn-enter')
 
@@ -77,10 +86,7 @@ socket.on('nickname:ok', nick => {
 })
 
 // ── Lobby ─────────────────────────────────────────────────────────
-document.getElementById('btn-create-room').addEventListener('click', () => {
-  socket.emit('room:create')
-})
-
+document.getElementById('btn-create-room').addEventListener('click', () => socket.emit('room:create'))
 document.getElementById('btn-browse-rooms').addEventListener('click', () => {
   socket.emit('lobby:enter')
   showScreen('screen-room-list')
@@ -99,16 +105,12 @@ socket.on('rooms:list', rooms => {
       <button data-id="${r.id}">Rejoindre</button>
     </div>
   `).join('')
-
   container.querySelectorAll('button[data-id]').forEach(btn => {
     btn.addEventListener('click', () => socket.emit('room:join', btn.dataset.id))
   })
 })
 
-socket.on('room:error', () => {
-  // Room was full or gone — refresh the list
-  socket.emit('lobby:enter')
-})
+socket.on('room:error', () => socket.emit('lobby:enter'))
 
 document.getElementById('btn-back-to-lobby').addEventListener('click', () => {
   socket.emit('lobby:leave')
@@ -126,7 +128,7 @@ function renderWaiting(room, isCreator) {
       const isMe      = p.id === socket.id
       const isCreator = p.id === room.creatorId
       return `<div class="slot filled">
-        <span>${p.nickname}${isMe ? ' (vous)' : ''}</span>
+        <span>${escapeHtml(p.nickname)}${isMe ? ' (vous)' : ''}</span>
         ${isCreator ? '<span class="slot-badge">créateur</span>' : ''}
       </div>`
     }).join('')
@@ -137,25 +139,17 @@ function renderWaiting(room, isCreator) {
 }
 
 socket.on('room:joined', ({ room, isCreator }) => {
-  gameScores     = []
-  scoreTeamNames = { my: [], opp: [] }
+  resetScores()
   document.getElementById('score-panel').classList.add('hidden')
   document.getElementById('score-btn').classList.add('hidden')
   renderWaiting(room, isCreator)
   showScreen('screen-waiting')
 })
 
-socket.on('room:updated', room => {
-  renderWaiting(room, room.creatorId === socket.id)
-})
+socket.on('room:updated', room => renderWaiting(room, room.creatorId === socket.id))
 
-document.getElementById('btn-start').addEventListener('click', () => {
-  socket.emit('room:start')
-})
-
-document.getElementById('btn-leave-room').addEventListener('click', () => {
-  socket.emit('room:leave')
-})
+document.getElementById('btn-start').addEventListener('click', () => socket.emit('room:start'))
+document.getElementById('btn-leave-room').addEventListener('click', () => socket.emit('room:leave'))
 
 socket.on('room:left', () => {
   document.getElementById('score-panel').classList.add('hidden')
@@ -164,68 +158,10 @@ socket.on('room:left', () => {
 })
 
 // ── Game ──────────────────────────────────────────────────────────
-let myTeam         = null
-let gameScores     = []
-let scoreTeamNames = { my: [], opp: [] }
-
-// Contract scoring per official French Contrée rules
-function computeGameScore(scores, tricksWon, beloteBonus, bid) {
-  const bTeam = bid.team
-  const oTeam = bTeam === 'A' ? 'B' : 'A'
-  const mult  = bid.contree === 'surcontree' ? 4 : bid.contree === 'contree' ? 2 : 1
-
-  const bCardTotal = scores[bTeam] + beloteBonus[bTeam]
-  const fulfilled  = bid.value === 'Capot'
-    ? tricksWon[oTeam] === 0   // Capot = all 8 tricks won, opponent got 0 tricks
-    : bCardTotal >= bid.value
-
-  const contractValue = (bid.value === 'Capot' ? 250 : bid.value) * mult
-
-  const result = { A: 0, B: 0 }
-  if (fulfilled) {
-    // Bidding team scores exactly their contract value (excess card pts discarded)
-    result[bTeam] = contractValue + beloteBonus[bTeam]
-    result[oTeam] = beloteBonus[oTeam]
-  } else {
-    // Chute: bidding team 0, opponents get fixed 160 × multiplier
-    result[bTeam] = beloteBonus[bTeam]
-    result[oTeam] = 160 * mult + beloteBonus[oTeam]
-  }
-  return { result, fulfilled }
-}
-
-function buildScoreTableHTML() {
-  const myNames  = scoreTeamNames.my.join(' & ')
-  const oppNames = scoreTeamNames.opp.join(' & ')
-  const myTotal  = gameScores.reduce((s, g) => s + g.my,  0)
-  const oppTotal = gameScores.reduce((s, g) => s + g.opp, 0)
-  const rows = gameScores.length
-    ? gameScores.map(g => `<tr><td>${g.my}</td><td>${g.opp}</td></tr>`).join('')
-    : `<tr><td colspan="2" style="color:rgba(240,230,200,0.3);font-style:italic;padding:4px 0">—</td></tr>`
-  return `<table class="score-table">
-    <thead><tr>
-      <th style="color:#6ab0ff">${myNames || '…'}</th>
-      <th style="color:#ff7070">${oppNames || '…'}</th>
-    </tr></thead>
-    <tbody>${rows}</tbody>
-    <tfoot><tr><td>${myTotal}</td><td>${oppTotal}</td></tr></tfoot>
-  </table>`
-}
-
-function updateScoreUI() {
-  const html = buildScoreTableHTML()
-  document.getElementById('score-panel').innerHTML = html
-  document.getElementById('score-modal-content').innerHTML = html
-}
-
 socket.on('game:dealt', async data => {
   document.getElementById('game-over-modal').classList.add('hidden')
   myTeam = data.seats.find(s => s.socketId === socket.id)?.team ?? null
-  const ot = myTeam === 'A' ? 'B' : 'A'
-  scoreTeamNames = {
-    my:  data.seats.filter(s => s.team === myTeam).map(s => s.nickname),
-    opp: data.seats.filter(s => s.team === ot).map(s => s.nickname),
-  }
+  setTeamNames(data.seats, myTeam)
   document.getElementById('score-panel').classList.remove('hidden')
   document.getElementById('score-btn').classList.remove('hidden')
   updateScoreUI()
@@ -235,151 +171,21 @@ socket.on('game:dealt', async data => {
 })
 
 // ── Bidding ───────────────────────────────────────────────────────
-const BID_VALUES  = [80, 90, 100, 110, 120, 130, 140, 150, 160, 'Capot']
-const SUIT_LABELS = { Hearts: '♥', Diamonds: '♦', Clubs: '♣', Spades: '♠' }
-
-let selectedValue    = null
-let selectedSuit     = null
-let currentBidState  = null
-
-const bidOverlay    = document.getElementById('bid-overlay')
-const bidCurrentEl  = document.getElementById('bid-current-info')
-const bidValuesEl   = document.getElementById('bid-values')
-const bidSuitsEl    = document.getElementById('bid-suits')
-const btnPass       = document.getElementById('btn-pass')
-const btnBid        = document.getElementById('btn-bid')
-const btnContree    = document.getElementById('btn-contree')
-const btnSurcontree = document.getElementById('btn-surcontree')
-
-function bidNumeric(v) { return v === 'Capot' ? 250 : v }
-
-// Build value and suit buttons once at startup
-BID_VALUES.forEach(v => {
-  const btn = document.createElement('button')
-  btn.textContent  = v
-  btn.dataset.value = String(v)
-  btn.addEventListener('click', () => {
-    selectedValue = v
-    refreshBidUI()
-  })
-  bidValuesEl.appendChild(btn)
-})
-
-Object.entries(SUIT_LABELS).forEach(([suit, symbol]) => {
-  const btn = document.createElement('button')
-  btn.textContent  = symbol
-  btn.dataset.suit = suit
-  btn.addEventListener('click', () => {
-    selectedSuit = suit
-    refreshBidUI()
-  })
-  bidSuitsEl.appendChild(btn)
-})
-
-function refreshBidUI() {
-  const high = currentBidState?.highBid
-
-  // Update "current bid" label
-  if (high) {
-    const sym = SUIT_LABELS[high.suit]
-    const ct  = currentBidState.contree === 'surcontree' ? ' — SURCONTRÉ'
-              : currentBidState.contree === 'contree'    ? ' — CONTRÉ' : ''
-    bidCurrentEl.textContent = `Enchère actuelle : ${high.value} ${sym}${ct}`
-  } else {
-    bidCurrentEl.textContent = 'Aucune enchère pour l\'instant'
-  }
-
-  // Value buttons: disable those that can't top the current bid
-  bidValuesEl.querySelectorAll('button').forEach(btn => {
-    const v = btn.dataset.value === 'Capot' ? 'Capot' : parseInt(btn.dataset.value)
-    btn.disabled = !!(high && bidNumeric(v) <= bidNumeric(high.value))
-    btn.classList.toggle('selected', String(v) === String(selectedValue))
-  })
-
-  // Suit buttons
-  bidSuitsEl.querySelectorAll('button').forEach(btn => {
-    btn.classList.toggle('selected', btn.dataset.suit === selectedSuit)
-  })
-
-  // If selected value is now disabled, clear it
-  if (selectedValue !== null && high && bidNumeric(selectedValue) <= bidNumeric(high.value)) {
-    selectedValue = null
-  }
-
-  // Announce button: needs a valid value AND suit
-  const canBid = selectedValue !== null && selectedSuit !== null &&
-    (!high || bidNumeric(selectedValue) > bidNumeric(high.value))
-  btnBid.disabled = !canBid
-
-  // Contrée: opponent of current high bidder, contree not yet set
-  const iAmHighBidder = high?.team === myTeam
-  const canContree    = !!(high && !iAmHighBidder && currentBidState.contree === false)
-  const canSurcontree = !!(high &&  iAmHighBidder && currentBidState.contree === 'contree')
-
-  btnContree.classList.toggle('hidden', !canContree)
-  btnSurcontree.classList.toggle('hidden', !canSurcontree)
-}
-
 socket.on('bid:state', data => {
-  currentBidState = data
   applyBidState(data)
-
-  if (data.currentBidderSocketId === socket.id) {
-    refreshBidUI()
-    bidOverlay.classList.remove('hidden')
-  } else {
-    bidOverlay.classList.add('hidden')
-  }
+  applyBidUIState(data, socket.id, myTeam)
 })
 
 socket.on('game:play-start', data => {
-  bidOverlay.classList.add('hidden')
+  hideBidOverlay()
   document.getElementById('surcontree-announcement').classList.add('hidden')
   document.getElementById('contree-announcement').classList.add('hidden')
-  currentBidState = null
   applyPlayStart(data)
 })
 
-btnPass.addEventListener('click', () => {
-  socket.emit('bid:pass')
-  bidOverlay.classList.add('hidden')
-})
-
-btnBid.addEventListener('click', () => {
-  if (!selectedValue || !selectedSuit) return
-  socket.emit('bid:place', { value: selectedValue, suit: selectedSuit })
-  selectedValue = null
-  selectedSuit  = null
-  bidOverlay.classList.add('hidden')
-})
-
-btnContree.addEventListener('click', () => {
-  socket.emit('bid:contree')
-  bidOverlay.classList.add('hidden')
-})
-
-btnSurcontree.addEventListener('click', () => {
-  socket.emit('bid:surcontree')
-  bidOverlay.classList.add('hidden')
-})
-
-function flashAnnouncement(id, text, duration = 2000) {
-  const el = document.getElementById(id)
-  if (text !== undefined) el.textContent = text
-  el.classList.remove('hidden')
-  el.style.animation = 'none'
-  el.offsetHeight
-  el.style.animation = ''
-  clearTimeout(el._hideTimer)
-  el._hideTimer = setTimeout(() => el.classList.add('hidden'), duration)
-}
-
-socket.on('bid:contree-announced', () => {
-  flashAnnouncement('contree-announcement', undefined, 2000)
-})
-
+socket.on('bid:contree-announced',   () => flashAnnouncement('contree-announcement', undefined, 2000))
 socket.on('bid:surcontree-announced', () => {
-  bidOverlay.classList.add('hidden')
+  hideBidOverlay()
   const el = document.getElementById('surcontree-announcement')
   el.classList.remove('hidden')
   el.style.animation = 'none'
@@ -388,25 +194,20 @@ socket.on('bid:surcontree-announced', () => {
 })
 
 // ── Trick play ────────────────────────────────────────────────────
-socket.on('play:state',    data => applyPlayState(data))
+socket.on('play:state',     data => applyPlayState(data))
 socket.on('play:your-turn', data => applyYourTurn(data))
-socket.on('trick:won',     data => applyTrickWon(data))
+socket.on('trick:won',      data => applyTrickWon(data))
 socket.on('play:belote', ({ nickname, type }) => {
   const label = type === 'rebelote' ? `Rebelote ! (${nickname})` : `Belote ! (${nickname})`
   flashAnnouncement('belote-announcement', label, 2500)
 })
+
 socket.on('game:over', ({ scores, tricksWon, beloteBonus, bid }) => {
-  const myTeam    = state.seats[0].team
   const otherTeam = myTeam === 'A' ? 'B' : 'A'
 
-  const total = { A: scores.A + beloteBonus.A, B: scores.B + beloteBonus.B }
+  const total      = { A: scores.A + beloteBonus.A, B: scores.B + beloteBonus.B }
   const myTotal    = total[myTeam]
   const otherTotal = total[otherTeam]
-
-  const { result: gameResult, fulfilled } = computeGameScore(scores, tricksWon, beloteBonus, bid)
-  const winnerTeam  = fulfilled ? bid.team : (bid.team === 'A' ? 'B' : 'A')
-  const winnerSeats = state.seats.filter(s => s.team === winnerTeam)
-  const winnerColor = winnerTeam === myTeam ? '#6ab0ff' : '#ff7070'
 
   document.getElementById('game-over-scores').innerHTML = `
     <div class="go-score-block">
@@ -421,8 +222,13 @@ socket.on('game:over', ({ scores, tricksWon, beloteBonus, bid }) => {
     </div>
   `
 
-  const n1 = `<span style="color:${winnerColor}">${winnerSeats[0]?.nickname ?? '?'}</span>`
-  const n2 = `<span style="color:${winnerColor}">${winnerSeats[1]?.nickname ?? '?'}</span>`
+  const { result: gameResult, fulfilled } = computeGameScore(scores, tricksWon, beloteBonus, bid)
+  const winnerTeam  = fulfilled ? bid.team : (bid.team === 'A' ? 'B' : 'A')
+  const winnerSeats = state.seats.filter(s => s.team === winnerTeam)
+  const winnerColor = winnerTeam === myTeam ? '#6ab0ff' : '#ff7070'
+
+  const n1     = `<span style="color:${winnerColor}">${escapeHtml(winnerSeats[0]?.nickname ?? '?')}</span>`
+  const n2     = `<span style="color:${winnerColor}">${escapeHtml(winnerSeats[1]?.nickname ?? '?')}</span>`
   const prefix = fulfilled ? 'Contrat rempli' : 'Dedans !'
   document.getElementById('game-over-result').innerHTML =
     `${prefix},<br>${n1} &amp; ${n2} remportent la manche`
@@ -434,19 +240,40 @@ socket.on('game:over', ({ scores, tricksWon, beloteBonus, bid }) => {
 
   document.getElementById('game-over-modal').classList.remove('hidden')
 
-  gameScores.push({ my: gameResult[myTeam], opp: gameResult[otherTeam] })
+  recordGameResult(gameResult, myTeam)
   updateScoreUI()
 })
 
-// ── Score button / modal ──────────────────────────────────────────
+socket.on('game:victory', ({ winnerTeam, winnerNicknames, cumulativeScores }) => {
+  document.getElementById('game-over-modal').classList.add('hidden')
+  const isMyTeamWinner = winnerTeam === myTeam
+  const color = isMyTeamWinner ? '#6ab0ff' : '#ff7070'
+  const n1 = `<span style="color:${color}">${escapeHtml(winnerNicknames[0])}</span>`
+  const n2 = `<span style="color:${color}">${escapeHtml(winnerNicknames[1])}</span>`
+  document.getElementById('victory-names').innerHTML = `${n1} &amp; ${n2} gagne !`
+  document.getElementById('victory-modal').classList.remove('hidden')
+})
+
+document.getElementById('btn-victory-lobby').addEventListener('click', () => {
+  document.getElementById('victory-modal').classList.add('hidden')
+  socket.emit('room:leave')
+})
+
+// ── Announcements ─────────────────────────────────────────────────
+function flashAnnouncement(id, text, duration = 2000) {
+  const el = document.getElementById(id)
+  if (text !== undefined) el.textContent = text
+  el.classList.remove('hidden')
+  el.style.animation = 'none'
+  el.offsetHeight
+  el.style.animation = ''
+  clearTimeout(el._hideTimer)
+  el._hideTimer = setTimeout(() => el.classList.add('hidden'), duration)
+}
+
+// ── Score modal ───────────────────────────────────────────────────
 const scoreModal = document.getElementById('score-modal')
 
-document.getElementById('score-btn').addEventListener('click', () => {
-  scoreModal.classList.remove('hidden')
-})
-document.getElementById('score-modal-ok').addEventListener('click', () => {
-  scoreModal.classList.add('hidden')
-})
-scoreModal.addEventListener('click', e => {
-  if (e.target === scoreModal) scoreModal.classList.add('hidden')
-})
+document.getElementById('score-btn').addEventListener('click', () => scoreModal.classList.remove('hidden'))
+document.getElementById('score-modal-ok').addEventListener('click', () => scoreModal.classList.add('hidden'))
+scoreModal.addEventListener('click', e => { if (e.target === scoreModal) scoreModal.classList.add('hidden') })

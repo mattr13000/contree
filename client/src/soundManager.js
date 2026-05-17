@@ -36,17 +36,18 @@ let musicStarted = false
 
 export function startMusic() {
   if (musicStarted) return
-  musicStarted = true
-  music.play().catch(() => {})
-  const duration = 2000
-  const steps    = 60
-  const interval = duration / steps
-  let   step     = 0
-  const timer = setInterval(() => {
-    step++
-    music.volume = Math.min(MUSIC_TARGET, MUSIC_TARGET * (step / steps))
-    if (step >= steps) clearInterval(timer)
-  }, interval)
+  music.play().then(() => {
+    musicStarted = true
+    const duration = 2000
+    const steps    = 60
+    const interval = duration / steps
+    let   step     = 0
+    const timer = setInterval(() => {
+      step++
+      music.volume = Math.min(MUSIC_TARGET, MUSIC_TARGET * (step / steps))
+      if (step >= steps) clearInterval(timer)
+    }, interval)
+  }).catch(() => {})
 }
 
 export function toggleMusicMute() {
