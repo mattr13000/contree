@@ -450,6 +450,57 @@ button.hidden { display: none; }
   to   { width: 0%; }
 }
 
+/* ── Victory modal ───────────────────────────────────────────── */
+#victory-modal {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.65);
+  z-index: 300;
+}
+#victory-modal.hidden { display: none; }
+
+#victory-box {
+  background: rgba(0, 30, 30, 0.98);
+  border: 2px solid rgba(218, 165, 32, 0.8);
+  border-radius: 16px;
+  padding: 52px 64px 44px;
+  text-align: center;
+  box-shadow: 0 0 60px rgba(218, 165, 32, 0.25), 0 12px 48px rgba(0, 0, 0, 0.8);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 20px;
+  animation: victory-pop 0.4s cubic-bezier(0.34, 1.56, 0.64, 1) both;
+}
+
+@keyframes victory-pop {
+  from { transform: scale(0.7); opacity: 0; }
+  to   { transform: scale(1);   opacity: 1; }
+}
+
+#victory-label {
+  font-size: 2.6rem;
+  font-weight: bold;
+  color: #daa520;
+  letter-spacing: 0.08em;
+  text-shadow: 0 0 20px rgba(218, 165, 32, 0.5);
+}
+
+#victory-names {
+  font-size: 1.35rem;
+  color: #f0e6c8;
+  line-height: 1.5;
+}
+
+#btn-victory-lobby {
+  margin-top: 8px;
+  padding: 12px 32px;
+  font-size: 1rem;
+}
+
 /* ── Score panel (top-right, wide screens) ───────────────────── */
 #score-panel {
   position: fixed;

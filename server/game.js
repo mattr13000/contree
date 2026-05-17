@@ -14,6 +14,26 @@ const REGULAR_POINTS = { 'A':11,'10':10,'K':4,'Q':3,'J':2,'9':0,'8':0,'7':0 }
 const POSITIONS = ['south', 'west', 'north', 'east']
 const TEAMS     = ['A',     'B',    'A',     'B'   ]
 
+// ── Scoring ───────────────────────────────────────────────────────
+function computeGameScore(scores, tricksWon, beloteBonus, bid) {
+  const bTeam = bid.team
+  const oTeam = bTeam === 'A' ? 'B' : 'A'
+  const mult  = bid.contree === 'surcontree' ? 4 : bid.contree === 'contree' ? 2 : 1
+  const fulfilled = bid.value === 'Capot'
+    ? tricksWon[oTeam] === 0
+    : scores[bTeam] + beloteBonus[bTeam] >= bid.value
+  const contractValue = (bid.value === 'Capot' ? 250 : bid.value) * mult
+  const result = { A: 0, B: 0 }
+  if (fulfilled) {
+    result[bTeam] = contractValue + beloteBonus[bTeam]
+    result[oTeam] = beloteBonus[oTeam]
+  } else {
+    result[bTeam] = beloteBonus[bTeam]
+    result[oTeam] = 160 * mult + beloteBonus[oTeam]
+  }
+  return result
+}
+
 // ── Pure helpers ──────────────────────────────────────────────────
 function trumpStrength(r)   { return TRUMP_RANK_ORDER.indexOf(r) }
 function regularStrength(r) { return REGULAR_RANK_ORDER.indexOf(r) }
@@ -126,6 +146,7 @@ export function deal(room) {
 
   games.set(room.id, {
     roomId: room.id, seats, hands, dealerIdx, bidderIdx, phase: 'bidding',
+    cumulativeScores: prevGame?.cumulativeScores ?? { A: 0, B: 0 },
     bidding: { currentBidderIdx: bidderIdx, passCount: 0, highBid: null, contree: false },
   })
 
@@ -249,15 +270,33 @@ export function resolveTrick(roomId) {
     if (bh?.played.K && bh?.played.Q) beloteBonus[bh.team] += 20
 
     setTimeout(() => {
+      const bid = { ...game.bidding.highBid, contree: game.bidding.contree }
       io.to(roomId).emit('game:over', {
         scores:     trickState.scores,
         tricksWon:  trickState.tricksWon,
         beloteBonus,
-        bid:        { ...game.bidding.highBid, contree: game.bidding.contree },
+        bid,
       })
       game.phase = 'ended'
+
+      const gameResult = computeGameScore(trickState.scores, trickState.tricksWon, beloteBonus, bid)
+      game.cumulativeScores.A += gameResult.A
+      game.cumulativeScores.B += gameResult.B
+
       const r = rooms.get(roomId)
-      setTimeout(() => { if (r && r.players.length === 4) deal(r) }, 8000)
+      setTimeout(() => {
+        if (!r || r.players.length !== 4) return
+        const { cumulativeScores, seats } = game
+        if (cumulativeScores.A >= 500 || cumulativeScores.B >= 500) {
+          const winnerTeam = (cumulativeScores.A >= 500 && cumulativeScores.B >= 500)
+            ? (cumulativeScores.A >= cumulativeScores.B ? 'A' : 'B')
+            : cumulativeScores.A >= 500 ? 'A' : 'B'
+          const winnerNicknames = seats.filter(s => s.team === winnerTeam).map(s => s.nickname)
+          io.to(roomId).emit('game:victory', { winnerTeam, winnerNicknames, cumulativeScores })
+        } else {
+          deal(r)
+        }
+      }, 8000)
     }, 2000)
     return
   }

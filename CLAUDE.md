@@ -80,6 +80,7 @@ sessions : Map<sessionId, { socketId, timer }>
   dealerIdx, bidderIdx,         // indices into seats[]
   phase,                        // 'bidding' | 'playing' | 'ended'
   trump,                        // suit string, set when bid is won
+  cumulativeScores,             // { A: number, B: number } — persisted across games, checked for 500
   bidding: {
     currentBidderIdx, passCount,
     highBid,   // null | { value, suit, team, bidderNickname }
@@ -153,6 +154,7 @@ On disconnect the server does **not** call `leaveRoom` immediately — it starts
 | `play:belote` | `{nickname, type}` | everyone in room |
 | `trick:won` | `{winnerSocketId, winnerNickname, trick, scores, tricksPlayed}` | everyone in room |
 | `game:over` | `{scores, tricksWon, beloteBonus, bid}` | everyone in room |
+| `game:victory` | `{winnerTeam, winnerNicknames, cumulativeScores}` | everyone in room |
 
 ### Canvas game renderer (`game.js`)
 
@@ -248,6 +250,7 @@ position = ['south','west','north','east'][(myIdx + offset) % 4]
 - **Step C — Bidding phase:** full bidding state machine (80–Capot, named suit), contree/surcontree, all-pass redeal with advancing dealer, HTML overlay with value/suit selector, bid won → `game:play-start` + `emitPlayState`. Surcontrée immediately ends bidding (no further passes needed) and triggers a 1.5s "Surcontré !" slam animation before play starts. Seat order shuffled once per session on first deal (then fixed); dealer index rotates each game. Contré/Surcontré/Belote/Rebelote each have a slam-in announcement overlay.
 - **Step D — Trick play phase:** card validation (follow suit, trump obligation, overtrump, partner exception), trick resolution, scoring (trump/non-trump points, dix de der), belote/rebelote detection, 8 tricks → `game:over`. Client: click-to-play, gold highlight on valid cards, dim on invalid, trick score HUD, "X remporte le pli" message.
 - **Step E — Scoring + score table:** official French Contrée scoring implemented client-side in `computeGameScore()` (`scoring.js`). Per-game modal shows raw card points; score table accumulates contract-adjusted points toward 500. Auto-redeals every 8s after game end.
+- **Step F — End-game (first to 500):** server tracks `cumulativeScores` per room (carried forward across games via `prevGame`). After each `game:over`, server computes the contract-adjusted result (duplicate of client `computeGameScore`), adds to cumulative. The 8s post-game timer checks: if either team ≥ 500 → emits `game:victory` (`{winnerTeam, winnerNicknames, cumulativeScores}`) instead of re-dealing. Both-teams-over-500 tie-break: higher total wins. Client shows `#victory-modal` (pop-in animation, gold border, winner names in team color, "gagne !"), with a "Retour au lobby" button that emits `room:leave`. Existing `leaveRoom` destroys the room once empty.
 - **Mobile support:** dynamic card scaling, touch input, landscape-aware Game HUD (Bid Badge top-right + Trick HUD top-left at 2× font with dark backing), south hand pops fully visible on player's turn (play phase only), west/east opponents tightly stacked, bid overlay converted to centred modal with backdrop.
 - **Security hardening:** all player nicknames HTML-escaped via `escapeHtml()` (`scoring.js`) before insertion into `innerHTML` (waiting room slots, game-over result, score table headers). `bidWon()` in `server/game.js` guards against null game so a surcontree setTimeout firing after a room empties cannot crash the server.
 - **Refactor:** server split into `state.js` / `game.js` / `index.js`; client `main.js` split into `main.js` / `bid-ui.js` / `scoring.js`.
@@ -258,11 +261,7 @@ position = ['south','west','north','east'][(myIdx + offset) % 4]
 
 ### Next step
 
-**Step F — End-game (first to 500)**
-- Detect when a team's cumulative score crosses 500 after a game ends.
-- Show a winner announcement screen / modal.
-- Reset scores and start a new session (or return to waiting room).
-- Score sheet currently lives in client JS memory only — resets on page refresh.
+No planned next step. Core game loop is complete (A through F). Possible future work: persistent score history (currently resets on page refresh), spectator mode, room-name customization.
 
 ### Card game rules reference
 - **Trump ranking (high→low):** J (20pts) > 9 (14pts) > A (11pts) > 10 (10pts) > K (4pts) > Q (3pts) > 8 (0) > 7 (0)

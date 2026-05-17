@@ -23,6 +23,10 @@ musicBtn.addEventListener('click', () => {
 const socket = io()
 setOnCardPlay(card => socket.emit('play:card', card))
 
+// Autoplay is blocked until a user gesture; retry music on the first interaction
+document.addEventListener('click',      () => startMusic(), { once: true })
+document.addEventListener('touchstart', () => startMusic(), { once: true, passive: true })
+
 initBidUI({
   onPass:       ()     => socket.emit('bid:pass'),
   onBid:        (v, s) => socket.emit('bid:place', { value: v, suit: s }),
@@ -238,6 +242,21 @@ socket.on('game:over', ({ scores, tricksWon, beloteBonus, bid }) => {
 
   recordGameResult(gameResult, myTeam)
   updateScoreUI()
+})
+
+socket.on('game:victory', ({ winnerTeam, winnerNicknames, cumulativeScores }) => {
+  document.getElementById('game-over-modal').classList.add('hidden')
+  const isMyTeamWinner = winnerTeam === myTeam
+  const color = isMyTeamWinner ? '#6ab0ff' : '#ff7070'
+  const n1 = `<span style="color:${color}">${escapeHtml(winnerNicknames[0])}</span>`
+  const n2 = `<span style="color:${color}">${escapeHtml(winnerNicknames[1])}</span>`
+  document.getElementById('victory-names').innerHTML = `${n1} &amp; ${n2} gagne !`
+  document.getElementById('victory-modal').classList.remove('hidden')
+})
+
+document.getElementById('btn-victory-lobby').addEventListener('click', () => {
+  document.getElementById('victory-modal').classList.add('hidden')
+  socket.emit('room:leave')
 })
 
 // ── Announcements ─────────────────────────────────────────────────
