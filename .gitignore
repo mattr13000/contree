@@ -20,6 +20,10 @@ yarn-error.log*
 Thumbs.db
 desktop.ini
 
+# Claude Code local config (machine-specific)
+.claude/
+CLAUDE.md
+
 # Editors
 .vscode/
 .idea/
