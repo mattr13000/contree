@@ -7,6 +7,7 @@ import { toggleMute, startMusic, toggleMusicMute } from './soundManager.js'
 import { escapeHtml, computeGameScore, resetScores, setTeamNames,
          recordGameResult, updateScoreUI } from './scoring.js'
 import { initBidUI, hideBidOverlay, applyBidUIState } from './bid-ui.js'
+import { SUIT_SYMBOLS } from '../../shared/constants.js'
 import './style.css'
 import type {
   ServerToClientEvents, ClientToServerEvents, Suit, Team, Rank,
@@ -179,7 +180,6 @@ socket.on('game:dealt', async data => {
 })
 
 // ── Bidding ───────────────────────────────────────────────────────
-const SUIT_SYMBOLS: Record<Suit, string> = { Hearts: '♥', Diamonds: '♦', Clubs: '♣', Spades: '♠' }
 let bidActionTimer: ReturnType<typeof setTimeout> | null = null
 
 // Per-element auto-hide timers (replaces the old el._hideTimer custom property)

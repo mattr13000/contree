@@ -1,5 +1,9 @@
 import { byId } from './dom.js'
-import type { Seat, Team, TeamScores, BidInfo } from '../../shared/types.js'
+import type { Seat, Team, TeamScores } from '../../shared/types.js'
+
+// Re-exported so existing client imports (`./scoring.js`) keep working;
+// the implementation lives in shared/ (single source of truth with the server).
+export { computeGameScore } from '../../shared/scoring.js'
 
 export function escapeHtml(str: unknown): string {
   return String(str ?? '')
@@ -8,31 +12,6 @@ export function escapeHtml(str: unknown): string {
     .replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;')
     .replace(/'/g, '&#39;')
-}
-
-export function computeGameScore(
-  scores: TeamScores, tricksWon: TeamScores, beloteBonus: TeamScores, bid: BidInfo,
-): { result: TeamScores; fulfilled: boolean } {
-  const bTeam = bid.team
-  const oTeam: Team = bTeam === 'A' ? 'B' : 'A'
-  const mult  = bid.contree === 'surcontree' ? 4 : bid.contree === 'contree' ? 2 : 1
-
-  const bCardTotal = scores[bTeam] + beloteBonus[bTeam]
-  const fulfilled  = bid.value === 'Capot'
-    ? tricksWon[oTeam] === 0
-    : bCardTotal >= bid.value
-
-  const contractValue = (bid.value === 'Capot' ? 250 : bid.value) * mult
-
-  const result: TeamScores = { A: 0, B: 0 }
-  if (fulfilled) {
-    result[bTeam] = contractValue + beloteBonus[bTeam]
-    result[oTeam] = beloteBonus[oTeam]
-  } else {
-    result[bTeam] = beloteBonus[bTeam]
-    result[oTeam] = 160 * mult + beloteBonus[oTeam]
-  }
-  return { result, fulfilled }
 }
 
 interface ScoreRow { my: number; opp: number }

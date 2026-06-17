@@ -6,9 +6,10 @@ import { dirname, join } from 'path'
 
 import { players, rooms, games, sessions,
          generateId, migrateSocketId, getRoomList, roomPayload } from './state.js'
-import { init as initGame, GAME_SUITS, BID_VALUES, bidNumeric, getValidCards,
+import { init as initGame, getValidCards,
          pushRoomList, leaveRoom, deal, emitBidState, bidWon, emitPlayState,
          resolveTrick } from './game.js'
+import { GAME_SUITS, BID_VALUES, bidNumeric } from '../shared/constants.js'
 import type { ClientToServerEvents, ServerToClientEvents, Restored, Room } from '../shared/types.js'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))

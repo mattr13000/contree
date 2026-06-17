@@ -1,9 +1,6 @@
 import { byId } from './dom.js'
+import { BID_VALUES, SUIT_SYMBOLS as SUIT_LABELS, bidNumeric } from '../../shared/constants.js'
 import type { Suit, Team, BidValue, BidStatePayload } from '../../shared/types.js'
-
-const BID_VALUES: BidValue[] = [80, 90, 100, 110, 120, 130, 140, 150, 160, 'Capot']
-const SUIT_LABELS: Record<Suit, string> = { Hearts: '♥', Diamonds: '♦', Clubs: '♣', Spades: '♠' }
-function bidNumeric(v: BidValue): number { return v === 'Capot' ? 250 : v }
 
 let selectedValue:   BidValue | null = null
 let selectedSuit:    Suit | null = null

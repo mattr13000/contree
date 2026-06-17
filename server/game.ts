@@ -1,44 +1,16 @@
 import type { Server } from 'socket.io'
 import { players, rooms, games, getRoomList, roomPayload } from './state.js'
 import type {
-  Rank, Suit, Team, Position, BidValue, Card, PlayedCard, Seat, Room,
+  Rank, Suit, Team, Card, PlayedCard, Seat, Room,
   TeamScores, BidInfo, LastAction, BeloteHolder, TrickState,
   ClientToServerEvents, ServerToClientEvents,
 } from '../shared/types.js'
-
-// ── Constants ─────────────────────────────────────────────────────
-export const RANKS:      Rank[] = ['7', '8', '9', '10', 'J', 'Q', 'K', 'A']
-export const GAME_SUITS: Suit[] = ['Hearts', 'Diamonds', 'Clubs', 'Spades']
-export const BID_VALUES: BidValue[] = [80, 90, 100, 110, 120, 130, 140, 150, 160, 'Capot']
-export function bidNumeric(v: BidValue): number { return v === 'Capot' ? 250 : v }
-
-const TRUMP_RANK_ORDER:   Rank[] = ['7','8','Q','K','10','A','9','J']
-const REGULAR_RANK_ORDER: Rank[] = ['7','8','9','J','Q','K','10','A']
-const TRUMP_POINTS:   Record<Rank, number> = { 'J':20,'9':14,'A':11,'10':10,'K':4,'Q':3,'8':0,'7':0 }
-const REGULAR_POINTS: Record<Rank, number> = { 'A':11,'10':10,'K':4,'Q':3,'J':2,'9':0,'8':0,'7':0 }
-
-const POSITIONS: Position[] = ['south', 'west', 'north', 'east']
-const TEAMS:     Team[]     = ['A',     'B',    'A',     'B'   ]
-
-// ── Scoring ───────────────────────────────────────────────────────
-function computeGameScore(scores: TeamScores, tricksWon: TeamScores, beloteBonus: TeamScores, bid: BidInfo): TeamScores {
-  const bTeam = bid.team
-  const oTeam: Team = bTeam === 'A' ? 'B' : 'A'
-  const mult  = bid.contree === 'surcontree' ? 4 : bid.contree === 'contree' ? 2 : 1
-  const fulfilled = bid.value === 'Capot'
-    ? tricksWon[oTeam] === 0
-    : scores[bTeam] + beloteBonus[bTeam] >= bid.value
-  const contractValue = (bid.value === 'Capot' ? 250 : bid.value) * mult
-  const result: TeamScores = { A: 0, B: 0 }
-  if (fulfilled) {
-    result[bTeam] = contractValue + beloteBonus[bTeam]
-    result[oTeam] = beloteBonus[oTeam]
-  } else {
-    result[bTeam] = beloteBonus[bTeam]
-    result[oTeam] = 160 * mult + beloteBonus[oTeam]
-  }
-  return result
-}
+import {
+  RANKS, GAME_SUITS, TRUMP_RANK_ORDER, REGULAR_RANK_ORDER,
+  TRUMP_POINTS, REGULAR_POINTS, POSITIONS, TEAMS,
+  BELOTE_BONUS, WINNING_SCORE,
+} from '../shared/constants.js'
+import { computeGameScore } from '../shared/scoring.js'
 
 // ── Pure helpers ──────────────────────────────────────────────────
 function trumpStrength(r: Rank): number   { return TRUMP_RANK_ORDER.indexOf(r) }
@@ -278,7 +250,7 @@ export function resolveTrick(roomId: string): void {
   if (isLast) {
     const beloteBonus: TeamScores = { A: 0, B: 0 }
     const bh = trickState.beloteHolder
-    if (bh?.played.K && bh?.played.Q && bh.team) beloteBonus[bh.team] += 20
+    if (bh?.played.K && bh?.played.Q && bh.team) beloteBonus[bh.team] += BELOTE_BONUS
 
     setTimeout(() => {
       const hb = game.bidding.highBid!
@@ -291,7 +263,7 @@ export function resolveTrick(roomId: string): void {
       })
       game.phase = 'ended'
 
-      const gameResult = computeGameScore(trickState.scores, trickState.tricksWon, beloteBonus, bid)
+      const gameResult = computeGameScore(trickState.scores, trickState.tricksWon, beloteBonus, bid).result
       game.cumulativeScores.A += gameResult.A
       game.cumulativeScores.B += gameResult.B
 
@@ -299,10 +271,10 @@ export function resolveTrick(roomId: string): void {
       setTimeout(() => {
         if (!r || r.players.length !== 4) return
         const { cumulativeScores, seats } = game
-        if (cumulativeScores.A >= 500 || cumulativeScores.B >= 500) {
-          const winnerTeam: Team = (cumulativeScores.A >= 500 && cumulativeScores.B >= 500)
+        if (cumulativeScores.A >= WINNING_SCORE || cumulativeScores.B >= WINNING_SCORE) {
+          const winnerTeam: Team = (cumulativeScores.A >= WINNING_SCORE && cumulativeScores.B >= WINNING_SCORE)
             ? (cumulativeScores.A >= cumulativeScores.B ? 'A' : 'B')
-            : cumulativeScores.A >= 500 ? 'A' : 'B'
+            : cumulativeScores.A >= WINNING_SCORE ? 'A' : 'B'
           const winnerNicknames = seats.filter(s => s.team === winnerTeam).map(s => s.nickname)
           io.to(roomId).emit('game:victory', { winnerTeam, winnerNicknames, cumulativeScores })
         } else {
