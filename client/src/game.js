@@ -1,55 +1,113 @@
-import { showScreen } from './router'
 import { soundHover, soundPlay } from './soundManager'
 
-const BASE_W          = 88
-const BASE_H          = 124
-const BASE_GAP        = 10
-const FAN_ANGLE       = Math.PI / 18
-const BASE_FAN_SPREAD = 22
+// ════════════════════════════════════════════════════════════════════
+// DOM renderer (Étape 3, passe 1). Replaces the old canvas renderer with
+// absolutely-positioned card <div>s using the approved proto layout. The
+// public API (state, apply*, initGame, setOnCardPlay, render) is unchanged
+// so features/*.ts keep working. Juice (GSAP, persistent nodes, deal
+// cascade, sweep) and the tap-to-confirm play step come in later passes.
+// ════════════════════════════════════════════════════════════════════
 
-// Scaled card dimensions — recomputed on each resize()
-let scale     = 1
-let cw        = BASE_W
-let ch        = BASE_H
-let hgap      = BASE_GAP
-let fanSpread = BASE_FAN_SPREAD
-let landscape = true
+const BASE_W = 96      // card box base size (proto units; sprite art is stretched to fill)
+const BASE_H = 134
 
+// Sprite-sheet cell coords (native 88×124 px grid) per rank.
 const SPRITE = {
-  'A':  { sx: 0,   sy: 0   },
-  '7':  { sx: 88,  sy: 124 },
-  '8':  { sx: 176, sy: 124 },
-  '9':  { sx: 264, sy: 124 },
-  '10': { sx: 352, sy: 124 },
-  'J':  { sx: 0,   sy: 248 },
-  'Q':  { sx: 88,  sy: 248 },
-  'K':  { sx: 176, sy: 248 },
+  'A':  { col: 0, row: 0 }, '7':  { col: 1, row: 1 }, '8':  { col: 2, row: 1 },
+  '9':  { col: 3, row: 1 }, '10': { col: 4, row: 1 }, 'J':  { col: 0, row: 2 },
+  'Q':  { col: 1, row: 2 }, 'K':  { col: 2, row: 2 },
 }
-
 const SUITS        = ['Hearts', 'Diamonds', 'Clubs', 'Spades']
 const SUIT_SYMBOLS = { Hearts: '♥', Diamonds: '♦', Clubs: '♣', Spades: '♠' }
+const RED = s => s === 'Hearts' || s === 'Diamonds'
 
-let canvas, ctx, assets, initialized = false
+// ── Tunable layout presets (baked from proto/game-ui.html) ───────────
+// Desktop + portrait only — landscape phones get the force-portrait overlay.
+const PRESET = {
+  desktop: {
+    page:  { margin: 0.098, maxAspect: 1.4 },
+    cardScale: 1.15,
+    south: { bottom: 0.30, step: 0.59, arc: 90, fan: 22, scale: 1.0 },
+    north: { top: 0.43, step: 0.45, scale: 1.0 },
+    side:  { edge: 0.44, step: 0.45, vshift: 0.0, scale: 0.95 },
+    pli:   { spread: 0.78, rot: 6 },
+    plate: { southY: 1.10, northY: 1.16, sideGap: 0.40, sideY: 0.0 },
+    hud:   { bidY: 0.0, contractY: 0.92 },
+  },
+  portrait: {
+    page:  { margin: 0.06, maxAspect: 1.4 },
+    cardScale: 1.2,
+    south: { bottom: 1.0, step: 0.5, arc: 80, fan: 22, scale: 1.1 },
+    north: { top: -0.45, step: 0.24, scale: 0.9 },
+    side:  { edge: -0.5, step: 0.4, vshift: 0.0, scale: 0.9 },
+    pli:   { spread: 0.62, rot: 6 },
+    plate: { southY: 1.9, northY: 0.55, sideGap: 0.45, sideY: 0.0 },
+    hud:   { bidY: 0.0, contractY: 1.2 },
+  },
+}
+const pickPreset = () => (Math.min(window.innerWidth, window.innerHeight) < 600) ? 'portrait' : 'desktop'
+let cfg = PRESET.desktop
+let CW = BASE_W, CH = BASE_H
 
-// ── Assets ────────────────────────────────────────────────────────
-function loadImg(src) {
-  return new Promise((res, rej) => {
-    const img = new Image()
-    img.onload = () => res(img)
-    img.onerror = rej
-    img.src = src
-  })
+function computeScale() {
+  cfg = PRESET[pickPreset()]
+  const vp = Math.max(0.5, Math.min(1, Math.min(window.innerWidth, window.innerHeight) / 600))
+  CW = Math.round(BASE_W * vp * cfg.cardScale)
+  CH = Math.round(BASE_H * vp * cfg.cardScale)
 }
 
-async function loadAssets() {
-  assets = { suits: {} }
-  assets.back = await loadImg('/Cards/Topdown/Card_Back-88x124.png')
-  for (const s of SUITS) {
-    assets.suits[s] = await loadImg(`/Cards/Topdown/${s}-88x124.png`)
+// Inner playfield, inset by margin and width-capped on wide screens.
+function field() {
+  const W = window.innerWidth, H = window.innerHeight
+  const m = cfg.page.margin * Math.min(W, H)
+  const hh = H / 2 - m
+  let hw = W / 2 - m
+  const cap = hh * cfg.page.maxAspect
+  if (hw > cap) hw = cap
+  return { cx: W / 2, cy: H / 2, hw, hh }
+}
+
+// Returns [cx, cy, rotDeg, scale] per card for a seat's hand of n cards.
+function layoutHand(pos, n) {
+  const f = field(), out = []
+  if (pos === 'south') {
+    const baseY = f.cy + f.hh - CH * cfg.south.bottom, step = CW * cfg.south.step
+    for (let i = 0; i < n; i++) { const t = n > 1 ? i / (n - 1) - 0.5 : 0
+      out.push([f.cx + t * step * (n - 1), baseY + t * t * cfg.south.arc, t * cfg.south.fan, cfg.south.scale]) }
+  } else if (pos === 'north') {
+    const step = CW * cfg.north.step, topY = f.cy - f.hh + CH * cfg.north.top
+    for (let i = 0; i < n; i++) { const t = n > 1 ? i / (n - 1) - 0.5 : 0
+      out.push([f.cx + t * step * (n - 1), topY, 180, cfg.north.scale]) }
+  } else {
+    const x = pos === 'west' ? f.cx - f.hw + CH * cfg.side.edge : f.cx + f.hw - CH * cfg.side.edge
+    const step = CW * cfg.side.step, rot = pos === 'west' ? 90 : -90, cy = f.cy + cfg.side.vshift * 2 * f.hh
+    for (let i = 0; i < n; i++) { const t = n > 1 ? i / (n - 1) - 0.5 : 0
+      out.push([x, cy + t * step * (n - 1), rot, cfg.side.scale]) }
   }
+  return out
+}
+const platePos = {
+  south: () => { const f = field(); return [f.cx, f.cy + f.hh - CH * cfg.plate.southY] },
+  north: () => { const f = field(); return [f.cx, f.cy - f.hh + CH * cfg.plate.northY] },
+  west:  () => { const f = field(), hx = f.cx - f.hw + CH * cfg.side.edge, cy = f.cy + cfg.side.vshift * 2 * f.hh
+                 return [hx + CH * cfg.side.scale * 0.5 + CW * cfg.plate.sideGap, cy + CW * cfg.plate.sideY] },
+  east:  () => { const f = field(), hx = f.cx + f.hw - CH * cfg.side.edge, cy = f.cy + cfg.side.vshift * 2 * f.hh
+                 return [hx - CH * cfg.side.scale * 0.5 - CW * cfg.plate.sideGap, cy + CW * cfg.plate.sideY] },
 }
 
-// ── Game state ────────────────────────────────────────────────────
+// ── Asset preload (warms the cache so DOM background-images don't flash) ─
+let assetsReady = false
+function loadImg(src) { return new Promise((res, rej) => { const i = new Image(); i.onload = () => res(i); i.onerror = rej; i.src = src }) }
+async function loadAssets() {
+  if (assetsReady) return
+  await Promise.all([
+    loadImg('/Cards/Topdown/Card_Back-88x124.png'),
+    ...SUITS.map(s => loadImg(`/Cards/Topdown/${s}-88x124.png`)),
+  ])
+  assetsReady = true
+}
+
+// ── Game state (shape unchanged — consumed by features/*.ts) ──────────
 export const state = {
   mySocketId: null,
   seats: [
@@ -58,16 +116,7 @@ export const state = {
     { nickname: 'Bob',     position: 'west',  isAlly: false, isMe: false },
     { nickname: 'Charlie', position: 'east',  isAlly: false, isMe: false },
   ],
-  myHand: [
-    { suit: 'Hearts',   rank: 'A'  },
-    { suit: 'Hearts',   rank: '7'  },
-    { suit: 'Hearts',   rank: '8'  },
-    { suit: 'Hearts',   rank: '9'  },
-    { suit: 'Spades',   rank: '10' },
-    { suit: 'Spades',   rank: 'J'  },
-    { suit: 'Diamonds', rank: 'Q'  },
-    { suit: 'Clubs',    rank: 'K'  },
-  ],
+  myHand: [],
   pli:              [],
   bid:              null,
   bidderNickname:   null,
@@ -80,116 +129,26 @@ export const state = {
   trickMessage:  null,
 }
 
-// ── Card play callback ────────────────────────────────────────────
 let onCardPlay = null
 export function setOnCardPlay(cb) { onCardPlay = cb }
 
-let hoveredCardIdx = -1
+let root = null, initialized = false
 
 // ── Entry ─────────────────────────────────────────────────────────
-export async function initGame(canvasEl, mySocketId) {
-  canvas = canvasEl
-  ctx    = canvas.getContext('2d')
+export async function initGame(rootEl, mySocketId) {
+  root = rootEl
   state.mySocketId = mySocketId
-
   if (!initialized) {
     await loadAssets()
-    window.addEventListener('resize', () => { resize(); render() })
-    canvas.addEventListener('click',      handleCanvasClick)
-    canvas.addEventListener('mousemove',  handleCanvasMouseMove)
-    canvas.addEventListener('touchstart', handleCanvasTouch, { passive: false })
+    window.addEventListener('resize', render)
     initialized = true
   }
-
-  resize()
   render()
 }
 
-// ── Scale / layout helpers ────────────────────────────────────────
-function getScale() {
-  // Scale down on mobile (min dimension < 600px); desktop stays at 1
-  const minDim = Math.min(window.innerWidth, window.innerHeight)
-  return minDim >= 600 ? 1 : Math.max(0.5, minDim / 600)
-}
+const seat = pos => state.seats.find(s => s.position === pos)
 
-// Top edge of the south hand on canvas
-function southY() {
-  // Only pop fully visible during the play phase (not bid phase)
-  if (scale < 1 && state.isMyTurn && state.trickInfo !== null) return canvas.height - ch - 16
-  return scale < 1
-    ? canvas.height - Math.round(ch * 0.55)
-    : canvas.height - ch - 24
-}
-
-function cx() { return canvas.width  / 2 }
-function cy() { return canvas.height / 2 }
-
-function handX0(count = 8) {
-  return (canvas.width - (count * cw + (count - 1) * hgap)) / 2
-}
-
-function seat(pos) { return state.seats.find(s => s.position === pos) }
-
-// ── Input handlers ────────────────────────────────────────────────
-function handleCanvasTouch(e) {
-  e.preventDefault()
-  const touch = e.changedTouches[0]
-  const rect  = canvas.getBoundingClientRect()
-  handleCanvasClick({
-    offsetX: touch.clientX - rect.left,
-    offsetY: touch.clientY - rect.top,
-  })
-}
-
-function handleCanvasClick(e) {
-  if (!state.isMyTurn || !state.validCards.length) return
-  const n = state.myHand.length
-  if (!n) return
-  const y  = southY()
-  const x0 = handX0(n)
-  for (let i = n - 1; i >= 0; i--) {
-    const cardX = x0 + i * (cw + hgap)
-    if (e.offsetX >= cardX && e.offsetX < cardX + cw && e.offsetY >= y && e.offsetY < y + ch) {
-      const card = state.myHand[i]
-      if (state.validCards.some(c => c.rank === card.rank && c.suit === card.suit)) {
-        soundPlay()
-        state.myHand.splice(i, 1)
-        state.isMyTurn   = false
-        state.validCards = []
-        render()
-        onCardPlay?.(card)
-      }
-      break
-    }
-  }
-}
-
-function handleCanvasMouseMove(e) {
-  if (!state.isMyTurn || !state.validCards.length) {
-    canvas.style.cursor = 'default'
-    hoveredCardIdx = -1
-    return
-  }
-  const n = state.myHand.length
-  if (!n) { canvas.style.cursor = 'default'; hoveredCardIdx = -1; return }
-  const y  = southY()
-  const x0 = handX0(n)
-  let pointer = false
-  let hitIdx  = -1
-  for (let i = 0; i < n; i++) {
-    const cardX = x0 + i * (cw + hgap)
-    if (e.offsetX >= cardX && e.offsetX < cardX + cw && e.offsetY >= y && e.offsetY < y + ch) {
-      const isValid = state.validCards.some(c => c.rank === state.myHand[i].rank && c.suit === state.myHand[i].suit)
-      if (isValid) { pointer = true; hitIdx = i }
-      break
-    }
-  }
-  if (hitIdx !== -1 && hitIdx !== hoveredCardIdx) soundHover()
-  hoveredCardIdx = hitIdx
-  canvas.style.cursor = pointer ? 'pointer' : 'default'
-}
-
-// ── Sorting ───────────────────────────────────────────────────────
+// ── Sorting (unchanged) ───────────────────────────────────────────
 const SUIT_ORDER       = { Hearts: 0, Spades: 1, Diamonds: 2, Clubs: 3 }
 const RANK_ORDER       = { A: 0, '10': 1, K: 2, Q: 3, J: 4, '9': 5, '8': 6, '7': 7 }
 const RANK_ORDER_TRUMP = { J: 0, '9': 1, A: 2, '10': 3, K: 4, Q: 5, '8': 6, '7': 7 }
@@ -202,7 +161,7 @@ function sortHand(hand, trump = null) {
   })
 }
 
-// ── Apply server events ───────────────────────────────────────────
+// ── Apply server events (state logic unchanged; render() is now DOM) ──
 export function applyDealt(data) {
   const myIdx  = data.seats.findIndex(s => s.socketId === state.mySocketId)
   const myTeam = data.seats[myIdx].team
@@ -210,14 +169,10 @@ export function applyDealt(data) {
   state.seats = [0, 1, 2, 3].map(offset => {
     const abs = data.seats[(myIdx + offset) % 4]
     return {
-      socketId:      abs.socketId,
-      nickname:      abs.nickname,
-      position:      ['south', 'west', 'north', 'east'][offset],
-      team:          abs.team,
-      isAlly:        abs.team === myTeam,
-      isMe:          abs.socketId === state.mySocketId,
-      cardCount:     8,
-      lastBidAction: null,
+      socketId: abs.socketId, nickname: abs.nickname,
+      position: ['south', 'west', 'north', 'east'][offset],
+      team: abs.team, isAlly: abs.team === myTeam, isMe: abs.socketId === state.mySocketId,
+      cardCount: 8, lastBidAction: null,
     }
   })
 
@@ -226,8 +181,6 @@ export function applyDealt(data) {
   state.bid                = null
   state.highBidderNickname = null
   state.trickInfo          = null
-  // Re-resolve bidderNickname from fresh seats in case bid:state arrived before this
-  // event (round 1: bid:state can arrive during async loadAssets, before applyDealt runs).
   state.bidderNickname = state.bidderSocketId
     ? (state.seats.find(s => s.socketId === state.bidderSocketId)?.nickname ?? null)
     : null
@@ -285,7 +238,6 @@ export function applyPlayState(data) {
       s.cardCount = 8 - data.tricksPlayed - (playedThisTrick ? 1 : 0)
     }
   }
-
   render()
 }
 
@@ -304,403 +256,171 @@ export function applyTrickWon(data) {
     state.trickInfo.tricksPlayed        = data.tricksPlayed
     state.trickInfo.trickLeaderSocketId = data.winnerSocketId
   }
-  for (const s of state.seats) {
-    if (!s.isMe) s.cardCount = 8 - data.tricksPlayed
-  }
+  for (const s of state.seats) { if (!s.isMe) s.cardCount = 8 - data.tricksPlayed }
   render()
 }
 
-function resize() {
-  canvas.width  = window.innerWidth
-  canvas.height = window.innerHeight
-  landscape = window.innerWidth > window.innerHeight
-  scale     = getScale()
-  cw        = Math.round(BASE_W * scale)
-  ch        = Math.round(BASE_H * scale)
-  hgap      = Math.round(BASE_GAP * scale)
-  fanSpread = Math.round(BASE_FAN_SPREAD * scale)
+// ── DOM building helpers ──────────────────────────────────────────
+function mkCard(faceUp, rank, suit) {
+  const el = document.createElement('div')
+  el.className = 'g-card' + (faceUp ? '' : ' back')
+  el.style.width = CW + 'px'; el.style.height = CH + 'px'
+  if (faceUp) {
+    const { col, row } = SPRITE[rank]
+    el.style.backgroundImage    = `url(/Cards/Topdown/${suit}-88x124.png)`
+    el.style.backgroundSize     = `${5 * CW}px ${3 * CH}px`
+    el.style.backgroundPosition = `-${col * CW}px -${row * CH}px`
+  } else {
+    el.style.backgroundImage = `url(/Cards/Topdown/Card_Back-88x124.png)`
+    el.style.backgroundSize  = `${CW}px ${CH}px`
+  }
+  return el
 }
-
-// ── Main render ───────────────────────────────────────────────────
-export function render() {
-  if (!canvas || !assets?.back) return
-  ctx.clearRect(0, 0, canvas.width, canvas.height)
-  drawNorth()
-  drawWest()
-  drawEast()
-  drawPli()
-  if (!state.isMyTurn) drawSouth()
-  drawBidHUD()
-  drawTrickInfo()
-  if (state.isMyTurn) drawSouth()  // on top of HUD during the player's turn
+function place(el, cx, cy, rot, sc) {
+  el.style.transform = `translate(${cx - CW / 2}px, ${cy - CH / 2}px) rotate(${rot}deg) scale(${sc})`
 }
-
-// ── Draw helpers ──────────────────────────────────────────────────
-function drawFace(rank, suit, x, y) {
-  const { sx, sy } = SPRITE[rank]
-  ctx.drawImage(assets.suits[suit], sx, sy, BASE_W, BASE_H, x, y, cw, ch)
-}
-
-function drawBack(x, y) {
-  ctx.drawImage(assets.back, 0, 0, BASE_W, BASE_H, x, y, cw, ch)
-}
-
-// (px, py) = canvas centre of the card
-function drawBackRotated(px, py, angle) {
-  ctx.save()
-  ctx.translate(px, py)
-  ctx.rotate(angle)
-  ctx.drawImage(assets.back, 0, 0, BASE_W, BASE_H, -cw / 2, -ch / 2, cw, ch)
-  ctx.restore()
-}
-
 function isTurnSeat(socketId) {
   if (state.trickInfo)      return state.trickInfo.currentPlayerSocketId === socketId
   if (state.bidderSocketId) return state.bidderSocketId === socketId
   return false
 }
 
-// Draw the last bid action label below a player's name (bidding phase only).
-const BID_ACTION_SUIT_SYMS = { Hearts: '♥', Diamonds: '♦', Clubs: '♣', Spades: '♠' }
-function drawSeatBidAction(action, x, y, align) {
-  if (!action || state.trickInfo !== null) return
-  const fs = Math.round(15 * Math.max(0.8, scale))
-  let label, color
-  if (action.type === 'bid') {
-    const sym = BID_ACTION_SUIT_SYMS[action.suit] ?? action.suit
-    label = `${action.value} ${sym}`
-    color = (action.suit === 'Hearts' || action.suit === 'Diamonds') ? '#d07070' : 'rgba(240,230,200,0.75)'
-  } else if (action.type === 'pass') {
-    label = 'Passe'
-    color = 'rgba(185,185,185,0.8)'
-  } else if (action.type === 'contree') {
-    label = 'Contré'
-    color = '#c070d0'
-  } else {
-    return
-  }
-  ctx.save()
-  ctx.font         = `${fs}px Georgia, serif`
-  ctx.textAlign    = align
-  ctx.textBaseline = 'top'
-  ctx.lineJoin     = 'round'
-  ctx.lineWidth    = 2
-  ctx.strokeStyle  = 'rgba(0,0,0,0.7)'
-  ctx.strokeText(label, x, y)
-  ctx.fillStyle    = color
-  ctx.fillText(label, x, y)
-  ctx.restore()
+// Opponent / ally face-down hand (north/west/east) + plate.
+function renderOpponent(pos, frag) {
+  const s = seat(pos)
+  const n = s.cardCount ?? 8
+  const lay = layoutHand(pos, n)
+  for (let i = 0; i < n; i++) { const el = mkCard(false); place(el, lay[i][0], lay[i][1], lay[i][2], lay[i][3]); frag.appendChild(el) }
+  frag.appendChild(plate(s))
 }
 
-function drawName(text, x, y, isAlly, align = 'center', isCurrentTurn = false, isLeader = false) {
-  ctx.save()
-  const fs = Math.round(15 * Math.max(0.8, scale))
-  ctx.font         = `bold ${fs}px Georgia, serif`
-  ctx.textAlign    = align
-  ctx.textBaseline = 'middle'
-
-  if (isCurrentTurn || isLeader) {
-    const textW = ctx.measureText(text).width
-
-    if (isCurrentTurn) {
-      const padX = 6, padY = 3
-      const rectH = fs * 1.4
-      const rectX = align === 'center' ? x - textW / 2 - padX
-                  : align === 'left'   ? x - padX
-                  :                      x - textW - padX
-      ctx.strokeStyle = '#daa520'
-      ctx.lineWidth   = 2
-      ctx.strokeRect(rectX, y - rectH / 2, textW + padX * 2, rectH)
-    }
-
-    if (isLeader) {
-      const tokenFS = Math.round(10 * Math.max(0.8, scale))
-      const tokenCX = align === 'center' ? x
-                    : align === 'left'   ? x + textW / 2
-                    :                      x - textW / 2
-      const tokenY  = y - fs * 0.7 - tokenFS * 0.5 - 2
-      ctx.font         = `${tokenFS}px sans-serif`
-      ctx.textAlign    = 'center'
-      ctx.textBaseline = 'middle'
-      ctx.lineWidth    = 2
-      ctx.strokeStyle  = 'rgba(0,0,0,0.75)'
-      ctx.strokeText('★', tokenCX, tokenY)
-      ctx.fillStyle    = '#ffd700'
-      ctx.fillText('★', tokenCX, tokenY)
-      ctx.font      = `bold ${fs}px Georgia, serif`
-      ctx.textAlign = align
-    }
-  }
-
-  ctx.lineJoin     = 'round'
-  ctx.lineWidth    = 3
-  ctx.strokeStyle  = 'rgba(0,0,0,0.75)'
-  ctx.strokeText(text, x, y)
-  ctx.fillStyle    = isAlly ? '#6ab0ff' : '#ff7070'
-  ctx.fillText(text, x, y)
-  ctx.restore()
-}
-
-// ── South — face-up hand ──────────────────────────────────────────
-function drawSouth() {
+// South face-up hand + interaction + plate.
+function renderSouth(frag) {
   const s = seat('south')
-  const { nickname, isAlly, socketId } = s
-  const n  = state.myHand.length
-  const y  = southY()
-  const x0 = handX0(n)
-
+  const n = state.myHand.length
+  const lay = layoutHand('south', n)
   state.myHand.forEach(({ rank, suit }, i) => {
-    const cardX   = x0 + i * (cw + hgap)
+    const el = mkCard(true, rank, suit)
     const isValid = state.isMyTurn && state.validCards.some(c => c.rank === rank && c.suit === suit)
-    const cardY   = (isValid && i === hoveredCardIdx) ? y - 8 : y
-    drawFace(rank, suit, cardX, cardY)
-    if (state.isMyTurn && !isValid) {
-      ctx.save()
-      ctx.fillStyle = 'rgba(0,0,0,0.45)'
-      ctx.fillRect(cardX, cardY, cw, ch)
-      ctx.restore()
-    }
+    if (state.isMyTurn) el.classList.add(isValid ? 'valid' : 'invalid')
+    place(el, lay[i][0], lay[i][1], lay[i][2], lay[i][3])
     if (isValid) {
-      ctx.save()
-      ctx.strokeStyle = '#daa520'
-      ctx.lineWidth   = 3
-      ctx.strokeRect(cardX, cardY, cw, ch)
-      ctx.restore()
+      el.addEventListener('pointerenter', soundHover)
+      el.addEventListener('click', () => playCard(rank, suit))
     }
+    frag.appendChild(el)
   })
-
-  const isLeaderS  = !!(state.trickInfo?.trickLeaderSocketId === socketId)
-  const nameFH_S   = Math.round(15 * Math.max(0.8, scale))
-  // Position name high enough that bid-action text (same font size, drawn below) clears the cards
-  const nameY_S    = y - 11 - Math.round(nameFH_S * 1.5)
-  drawName(nickname, cx(), nameY_S, isAlly, 'center', isTurnSeat(socketId), isLeaderS)
-  drawSeatBidAction(s.lastBidAction, cx(), nameY_S + Math.ceil(nameFH_S / 2) + 3, 'center')
+  frag.appendChild(plate(s))
 }
 
-// ── North — face-down hand ────────────────────────────────────────
-function drawNorth() {
-  const s = seat('north')
-  const { nickname, isAlly, socketId } = s
-  const n  = s.cardCount ?? 8
-  // Allow cards to overflow the top on mobile; show the bottom edge + name
-  const y  = scale < 1 ? -Math.round(ch * 0.35) : 24
-  const x0 = handX0(n)
-
-  for (let i = 0; i < n; i++) drawBack(x0 + i * (cw + hgap), y)
-
-  const isLeaderN = !!(state.trickInfo?.trickLeaderSocketId === socketId)
-  const nameY_N   = Math.max(14, y + ch + 14)
-  const nameFH_N  = Math.round(15 * Math.max(0.8, scale))
-  drawName(nickname, cx(), nameY_N, isAlly, 'center', isTurnSeat(socketId), isLeaderN)
-  drawSeatBidAction(s.lastBidAction, cx(), nameY_N + Math.ceil(nameFH_N / 2) + 3, 'center')
+function playCard(rank, suit) {
+  if (!state.isMyTurn) return
+  const idx = state.myHand.findIndex(c => c.rank === rank && c.suit === suit)
+  if (idx < 0) return
+  if (!state.validCards.some(c => c.rank === rank && c.suit === suit)) return
+  soundPlay()
+  const card = state.myHand[idx]
+  state.myHand.splice(idx, 1)
+  state.isMyTurn = false
+  state.validCards = []
+  render()
+  onCardPlay?.(card)
 }
 
-// ── West — rotated 90° CW ─────────────────────────────────────────
-// When rotated 90°: card height (ch) becomes the on-screen width,
-// card width (cw) becomes the on-screen height.
-function drawWest() {
-  const s = seat('west')
-  const { nickname, isAlly, socketId } = s
-  const n    = s.cardCount ?? 8
-  const rotW = ch   // on-screen width  of one rotated card
-  const rotH = cw   // on-screen height of one rotated card
-  // Desktop: spread with gap; mobile: tight stack (can overflow)
-  const step    = scale < 1 ? 16 : rotH + hgap
-  const totalH  = rotH + Math.max(0, n - 1) * step
-  const cardCX  = 20 + rotW / 2
-  const y0      = (canvas.height - totalH) / 2
-
-  for (let i = 0; i < n; i++) {
-    drawBackRotated(cardCX, y0 + i * step + rotH / 2, Math.PI / 2)
+// Seat name plate: name (ally/foe colour, turn frame), leader star, bid label.
+function plate(s) {
+  const el = document.createElement('div')
+  el.className = `g-seat ${s.isAlly ? 'ally' : 'foe'}${isTurnSeat(s.socketId) ? ' turn' : ''}`
+  const isLeader = state.trickInfo?.trickLeaderSocketId === s.socketId
+  let bid = ''
+  if (state.trickInfo === null && s.lastBidAction) {
+    const a = s.lastBidAction
+    if (a.type === 'pass')         bid = `<div class="g-bid pass">Passe</div>`
+    else if (a.type === 'contree') bid = `<div class="g-bid contree">Contré</div>`
+    else if (a.type === 'bid')     bid = `<div class="g-bid ${RED(a.suit) ? 'red' : 'black'}">${a.value} ${SUIT_SYMBOLS[a.suit] ?? a.suit}</div>`
   }
-
-  const isLeaderW = !!(state.trickInfo?.trickLeaderSocketId === socketId)
-  const nameX_W   = 20 + rotW + 10
-  const nameFH_W  = Math.round(15 * Math.max(0.8, scale))
-  drawName(nickname, nameX_W, cy(), isAlly, 'left', isTurnSeat(socketId), isLeaderW)
-  drawSeatBidAction(s.lastBidAction, nameX_W, cy() + Math.ceil(nameFH_W / 2) + 3, 'left')
+  el.innerHTML = `<span class="g-star"${isLeader ? '' : ' style="visibility:hidden"'}>★</span><div class="g-name">${escapeText(s.nickname)}</div>${bid}`
+  const [px, py] = platePos[s.position]()
+  el.style.left = px + 'px'; el.style.top = py + 'px'
+  return el
 }
+function escapeText(t) { const d = document.createElement('div'); d.textContent = t ?? ''; return d.innerHTML }
 
-// ── East — rotated 90° CCW ────────────────────────────────────────
-function drawEast() {
-  const s = seat('east')
-  const { nickname, isAlly, socketId } = s
-  const n    = s.cardCount ?? 8
-  const rotW = ch
-  const rotH = cw
-  const step    = scale < 1 ? 16 : rotH + hgap
-  const totalH  = rotH + Math.max(0, n - 1) * step
-  const cardCX  = canvas.width - 20 - rotW / 2
-  const y0      = (canvas.height - totalH) / 2
-
-  for (let i = 0; i < n; i++) {
-    drawBackRotated(cardCX, y0 + i * step + rotH / 2, -Math.PI / 2)
-  }
-
-  const isLeaderE = !!(state.trickInfo?.trickLeaderSocketId === socketId)
-  const nameX_E   = canvas.width - 20 - rotW - 10
-  const nameFH_E  = Math.round(15 * Math.max(0.8, scale))
-  drawName(nickname, nameX_E, cy(), isAlly, 'right', isTurnSeat(socketId), isLeaderE)
-  drawSeatBidAction(s.lastBidAction, nameX_E, cy() + Math.ceil(nameFH_E / 2) + 3, 'right')
-}
-
-// ── Pli zone ──────────────────────────────────────────────────────
-function drawPli() {
-  const pcx  = cx(), pcy = cy()
-  const pliW = Math.round(320 * scale)
-  const pliH = Math.round(220 * scale)
-
-  if (state.pli.length === 0) {
-    ctx.save()
-    ctx.strokeStyle = 'rgba(255,255,255,0.10)'
-    ctx.lineWidth   = 1
-    ctx.setLineDash([6, 4])
-    ctx.strokeRect(pcx - pliW / 2, pcy - pliH / 2, pliW, pliH)
-    ctx.restore()
-    return
-  }
-
+// Pli (current trick) fanned around centre by index (matches old canvas pli fan).
+function renderPli(frag) {
+  const f = field()
   const n = state.pli.length
+  const fanSpread = 0.22 * CW
   state.pli.forEach(({ rank, suit }, i) => {
-    const angle   = (i - (n - 1) / 2) * FAN_ANGLE
-    const offsetX = (i - (n - 1) / 2) * fanSpread
-    const { sx, sy } = SPRITE[rank]
-
-    ctx.save()
-    ctx.translate(pcx + offsetX, pcy)
-    ctx.rotate(angle)
-    ctx.drawImage(assets.suits[suit], sx, sy, BASE_W, BASE_H, -cw / 2, -ch / 2, cw, ch)
-    ctx.restore()
+    const el = mkCard(true, rank, suit)
+    const k = i - (n - 1) / 2
+    place(el, f.cx + k * fanSpread, f.cy, k * cfg.pli.rot, 1)
+    frag.appendChild(el)
   })
-
   if (state.trickMessage) {
-    ctx.save()
-    ctx.font         = `bold ${Math.round(15 * scale)}px Georgia, serif`
-    ctx.textAlign    = 'center'
-    ctx.textBaseline = 'middle'
-    ctx.lineJoin     = 'round'
-    ctx.lineWidth    = 3
-    ctx.strokeStyle  = 'rgba(0,0,0,0.75)'
-    ctx.strokeText(state.trickMessage, pcx, pcy + ch / 2 + 20)
-    ctx.fillStyle    = 'rgba(240,230,200,0.92)'
-    ctx.fillText(state.trickMessage, pcx, pcy + ch / 2 + 20)
-    ctx.restore()
+    const el = document.createElement('div')
+    el.className = 'g-trickmsg'
+    el.textContent = state.trickMessage
+    el.style.left = f.cx + 'px'; el.style.top = (f.cy + CH * 0.92) + 'px'
+    frag.appendChild(el)
   }
 }
 
-// ── Bid HUD — centred between pli zone and south hand ────────────
-function drawBidHUD() {
-  const bid = state.bid
-  const sym     = bid ? (SUIT_SYMBOLS[bid.suit] ?? bid.suit) : null
-  const contree = bid?.contree === 'surcontree' ? ' SURCONTRÉ'
-                : bid?.contree === 'contree'    ? ' CONTRÉ' : ''
-  const bidText = bid ? `${bid.value} ${sym}${contree}` : '—'
-
-  // Mobile landscape play phase: compact label at top-right
-  if (scale < 1 && landscape && state.trickInfo !== null) {
-    if (!bid) return
-    const fs = Math.round(26 * Math.max(0.8, scale))
-    ctx.save()
-    ctx.font         = `bold ${fs}px Georgia, serif`
-    ctx.textAlign    = 'right'
-    ctx.textBaseline = 'top'
-    ctx.lineJoin     = 'round'
-    ctx.lineWidth    = 2
-    ctx.strokeStyle  = 'rgba(0,0,0,0.75)'
-    ctx.strokeText(bidText, canvas.width - 14, 14)
-    ctx.fillStyle    = 'rgba(240,230,200,0.90)'
-    ctx.fillText(bidText, canvas.width - 14, 14)
-    ctx.restore()
+// HUD: bid box during bidding; contract encart + trick scores during play.
+function renderHUD(frag) {
+  const f = field()
+  if (state.trickInfo === null) {
+    const bid = state.bid
+    const sym = bid ? (SUIT_SYMBOLS[bid.suit] ?? bid.suit) : null
+    const contree = bid?.contree === 'surcontree' ? ' SURCONTRÉ' : bid?.contree === 'contree' ? ' CONTRÉ' : ''
+    const valHTML = bid ? `${bid.value} <span class="${RED(bid.suit) ? 'red' : ''}">${sym}</span>${contree}` : '—'
+    let turn = '', turnCls = ''
+    if (state.bidderSocketId) {
+      const b = state.seats.find(s => s.socketId === state.bidderSocketId)
+      if (b) { turn = b.isMe ? 'Votre tour !' : `Tour : ${escapeText(b.nickname)}`; turnCls = b.isMe ? 'me' : '' }
+    }
+    const el = document.createElement('div')
+    el.className = 'g-bidhud'
+    el.innerHTML = `<div class="lbl">ENCHÈRE</div><div class="val">${valHTML}</div>` +
+      (state.highBidderNickname ? `<div class="holder">${escapeText(state.highBidderNickname)}</div>` : '') +
+      (turn ? `<div class="turn ${turnCls}">${turn}</div>` : '')
+    el.style.left = f.cx + 'px'; el.style.top = (f.cy + CH * cfg.hud.bidY) + 'px'
+    frag.appendChild(el)
     return
   }
 
-  let turnText  = null
-  let turnColor = 'rgba(240,230,200,0.65)'
-  if (state.trickInfo) {
-    const p = state.seats.find(s => s.socketId === state.trickInfo.currentPlayerSocketId)
-    if (p) {
-      turnText  = p.isMe ? 'Votre tour !' : `Tour de ${p.nickname}`
-      turnColor = p.isMe ? '#daa520' : 'rgba(240,230,200,0.65)'
-    }
-  } else if (state.bidderSocketId) {
-    const bidder = state.seats.find(s => s.socketId === state.bidderSocketId)
-    if (bidder) turnText = `Tour : ${bidder.nickname}`
+  // Play phase — contract encart
+  const bid = state.bid
+  if (bid) {
+    const sym = SUIT_SYMBOLS[bid.suit] ?? bid.suit
+    const mult = bid.contree === 'surcontree' ? ' <span class="mult">×4</span>'
+               : bid.contree === 'contree'    ? ' <span class="mult">×2</span>' : ''
+    const el = document.createElement('div')
+    el.className = 'g-contract'
+    el.innerHTML = `<span class="lbl">CONTRAT </span><b>${bid.value} <span class="${RED(bid.suit) ? 'red' : ''}">${sym}</span></b>${mult}`
+    el.style.left = f.cx + 'px'; el.style.top = (f.cy + CH * cfg.hud.contractY) + 'px'
+    frag.appendChild(el)
   }
-
-  const hs = Math.max(0.75, scale)
-  const rows = [
-    { text: 'ENCHÈRE', font: `bold ${Math.round(10 * hs)}px Georgia, serif`, color: 'rgba(240,230,200,0.45)', h: Math.round(16 * hs) },
-    { text: bidText,   font: `bold ${Math.round(36 * hs)}px Georgia, serif`, color: '#ffffff',               h: Math.round(52 * hs) },
-  ]
-  if (state.highBidderNickname)
-    rows.push({ text: state.highBidderNickname, font: `${Math.round(11 * hs)}px Georgia, serif`,      color: 'rgba(240,230,200,0.50)', h: Math.round(18 * hs) })
-  if (turnText)
-    rows.push({ text: turnText,                 font: `bold ${Math.round(12 * hs)}px Georgia, serif`, color: turnColor,                h: Math.round(18 * hs) })
-
-  const PAD_Y = 10
-  const boxW  = Math.round(230 * hs)
-  const boxH  = rows.reduce((s, r) => s + r.h, 0) + PAD_Y * 2
-
-  const gapTop    = cy() + Math.round(110 * scale) + 5
-  const gapBottom = southY() - 16
-  const boxX = cx() - boxW / 2
-  const boxY = Math.max(gapTop + 4,
-               Math.min(gapBottom - boxH - 4,
-                        (gapTop + gapBottom) / 2 - boxH / 2))
-
-  ctx.save()
-  ctx.fillStyle = 'rgba(0,0,0,0.30)'
-  ctx.fillRect(boxX, boxY, boxW, boxH)
-
-  ctx.textAlign    = 'center'
-  ctx.textBaseline = 'middle'
-  ctx.lineJoin     = 'round'
-  ctx.lineWidth    = 2
-  ctx.strokeStyle  = 'rgba(0,0,0,0.75)'
-  let y = boxY + PAD_Y
-  for (const row of rows) {
-    ctx.font = row.font
-    ctx.strokeText(row.text, cx(), y + row.h / 2)
-    ctx.fillStyle = row.color
-    ctx.fillText(row.text, cx(), y + row.h / 2)
-    y += row.h
-  }
-
-  ctx.restore()
+  // Trick scores (top-left)
+  const { scores, tricksPlayed } = state.trickInfo
+  const th = document.createElement('div')
+  th.className = 'g-trickhud'
+  th.innerHTML = `<div class="row"><span>Plis</span><span>${tricksPlayed + 1} / 8</span></div>` +
+    `<div class="row"><span class="a">Nous</span><span class="a">${scores.A}</span></div>` +
+    `<div class="row"><span class="b">Eux</span><span class="b">${scores.B}</span></div>`
+  frag.appendChild(th)
 }
 
-// ── Trick score (top-left) ────────────────────────────────────────
-function drawTrickInfo() {
-  if (!state.trickInfo) return
-  const { scores, tricksPlayed } = state.trickInfo
-  const isMobile = scale < 1
-  const fs = Math.round((isMobile ? 26 : 13) * Math.max(0.8, scale))
-  const lh = Math.round((isMobile ? 40 : 20) * Math.max(0.8, scale))
-
-  const textLines = [
-    `Plis : ${tricksPlayed + 1}/8`,
-    `Éq. A : ${scores.A} pts`,
-    `Éq. B : ${scores.B} pts`,
-  ]
-  const PAD_X = 10, PAD_Y = 8, MARGIN = 8
-
-  ctx.save()
-  ctx.font      = `${fs}px Georgia, serif`
-  ctx.textAlign = 'left'
-
-  const maxW = Math.max(...textLines.map(t => ctx.measureText(t).width))
-  ctx.fillStyle = 'rgba(0,0,0,0.30)'
-  ctx.fillRect(MARGIN, MARGIN, maxW + PAD_X * 2, lh * 3 + PAD_Y * 2)
-
-  ctx.textBaseline = 'middle'
-  ctx.lineJoin     = 'round'
-  ctx.lineWidth    = 2
-  ctx.strokeStyle  = 'rgba(0,0,0,0.75)'
-  const entries = textLines.map((text, i) => ({
-    text, x: MARGIN + PAD_X, y: MARGIN + PAD_Y + lh * i + lh / 2,
-  }))
-  for (const e of entries) ctx.strokeText(e.text, e.x, e.y)
-  ctx.fillStyle = '#ffffff'
-  for (const e of entries) ctx.fillText(e.text, e.x, e.y)
-  ctx.restore()
+// ── Main render — full rebuild from state (juice/persistent nodes later) ─
+export function render() {
+  if (!root) return
+  computeScale()
+  const frag = document.createDocumentFragment()
+  renderOpponent('north', frag)
+  renderOpponent('west', frag)
+  renderOpponent('east', frag)
+  renderPli(frag)
+  renderSouth(frag)
+  renderHUD(frag)
+  root.replaceChildren(frag)
 }

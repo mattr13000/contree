@@ -17,7 +17,7 @@ export function initGameFlow(): void {
     byId('score-btn').classList.remove('hidden')
     updateScoreUI()
     showScreen('game')
-    await initGame(byId<HTMLCanvasElement>('game'), socket.id)
+    await initGame(byId<HTMLDivElement>('game'), socket.id)
     applyDealt(data)
   })
 

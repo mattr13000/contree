@@ -38,3 +38,7 @@ proto/
 
 # Unused card assets (only Cards/Topdown/ is used by the game)
 Cards/Isometric/
+
+
+# Personal dev stuff
+DEVLOG.md

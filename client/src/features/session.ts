@@ -28,7 +28,7 @@ export function initSession(): void {
     } else if (restored.state === 'game') {
       setMyTeam(restored.dealt.seats.find(s => s.socketId === socket.id)?.team ?? null)
       showScreen('game')
-      initGame(byId<HTMLCanvasElement>('game'), socket.id).then(() => {
+      initGame(byId<HTMLDivElement>('game'), socket.id).then(() => {
         applyDealt(restored.dealt)
         if (restored.bidState) {
           applyBidState(restored.bidState)
