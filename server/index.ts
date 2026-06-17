@@ -9,18 +9,19 @@ import { players, rooms, games, sessions,
 import { init as initGame, GAME_SUITS, BID_VALUES, bidNumeric, getValidCards,
          pushRoomList, leaveRoom, deal, emitBidState, bidWon, emitPlayState,
          resolveTrick } from './game.js'
+import type { ClientToServerEvents, ServerToClientEvents, Restored, Room } from '../shared/types.js'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const app        = express()
 const httpServer = createServer(app)
 const isDev      = process.env.NODE_ENV !== 'production'
 
-const io = new Server(httpServer, isDev ? { cors: { origin: '*' } } : {})
+const io = new Server<ClientToServerEvents, ServerToClientEvents>(httpServer, isDev ? { cors: { origin: '*' } } : {})
 initGame(io)
 
 if (!isDev) {
   app.use(express.static(join(__dirname, '../dist')))
-  app.get('*', (req, res) => res.sendFile(join(__dirname, '../dist/index.html')))
+  app.get('*', (_req, res) => res.sendFile(join(__dirname, '../dist/index.html')))
 }
 
 let roomCounter = 0
@@ -37,25 +38,25 @@ io.on('connection', socket => {
     if (!existing) {
       const sessionId = generateId()
       sessions.set(sessionId, { socketId: socket.id, timer: null })
-      players.get(socket.id).sessionId = sessionId
+      players.get(socket.id)!.sessionId = sessionId
       socket.emit('session:ready', { sessionId, restored: null })
       return
     }
 
-    clearTimeout(existing.timer)
+    clearTimeout(existing.timer ?? undefined)
     existing.timer    = null
     const oldId       = existing.socketId
     existing.socketId = socket.id
 
     migrateSocketId(oldId, socket.id)
-    const player = players.get(socket.id)
+    const player = players.get(socket.id)!
     player.sessionId = incomingId
 
     if (player.roomId) socket.join(player.roomId)
 
     const room = player.roomId ? rooms.get(player.roomId) : null
     const game = player.roomId ? games.get(player.roomId) : null
-    let restored = null
+    let restored: Restored | null = null
 
     if (game) {
       restored = {
@@ -74,12 +75,12 @@ io.on('connection', socket => {
           contree:               game.bidding.contree,
         } : null,
         playState: game.phase === 'playing' ? {
-          currentPlayerSocketId: game.seats[game.trickState.currentPlayerIdx].socketId,
-          trick:        game.trickState.trick,
-          tricksPlayed: game.trickState.tricksPlayed,
-          scores:       game.trickState.scores,
-          trump:        game.trump,
-          bid:          { ...game.bidding.highBid, contree: game.bidding.contree },
+          currentPlayerSocketId: game.seats[game.trickState!.currentPlayerIdx].socketId,
+          trick:        game.trickState!.trick,
+          tricksPlayed: game.trickState!.tricksPlayed,
+          scores:       game.trickState!.scores,
+          trump:        game.trump!,
+          bid:          { ...game.bidding.highBid!, contree: game.bidding.contree },
         } : null,
       }
     } else if (room) {
@@ -93,15 +94,15 @@ io.on('connection', socket => {
       restored = { state: 'lobby', nickname: player.nickname }
     }
 
-    socket.emit('session:ready', { sessionId: incomingId, restored })
-    if (game?.phase === 'playing') emitPlayState(player.roomId)
+    socket.emit('session:ready', { sessionId: incomingId!, restored })
+    if (game?.phase === 'playing' && player.roomId) emitPlayState(player.roomId)
   })
 
   // ── nickname:set ──────────────────────────────────────────────
   socket.on('nickname:set', raw => {
     const nickname = String(raw).trim().slice(0, 20)
     if (!nickname) return
-    players.get(socket.id).nickname = nickname
+    players.get(socket.id)!.nickname = nickname
     socket.emit('nickname:ok', nickname)
   })
 
@@ -119,7 +120,7 @@ io.on('connection', socket => {
     if (!player?.nickname || player.roomId) return
 
     roomCounter++
-    const room = {
+    const room: Room = {
       id:        generateId(),
       name:      `Salle #${roomCounter}`,
       players:   [socket.id],
@@ -206,7 +207,7 @@ io.on('connection', socket => {
     bidding.passCount++
     bidding.currentBidderIdx = (bidding.currentBidderIdx + 1) % 4
 
-    if (!bidding.highBid && bidding.passCount >= 4) { deal(rooms.get(player.roomId)); return }
+    if (!bidding.highBid && bidding.passCount >= 4) { deal(rooms.get(player.roomId)!); return }
     if (bidding.highBid  && bidding.passCount >= 3) { bidWon(player.roomId); return }
     emitBidState(player.roomId, { type: 'pass', socketId: socket.id, nickname: passerNickname })
   })
@@ -220,10 +221,10 @@ io.on('connection', socket => {
     const { bidding, seats } = game
     if (seats[bidding.currentBidderIdx].socketId !== socket.id) return
     if (!bidding.highBid || bidding.contree !== false) return
-    const myTeam = seats.find(s => s.socketId === socket.id).team
+    const myTeam = seats.find(s => s.socketId === socket.id)?.team
     if (bidding.highBid.team === myTeam) return
 
-    const contreeurNickname = seats.find(s => s.socketId === socket.id)?.nickname
+    const contreeurNickname = seats.find(s => s.socketId === socket.id)?.nickname ?? '?'
     bidding.contree   = 'contree'
     bidding.passCount = 0  // counts as a bid: need a full 3-pass round after contrée
     bidding.currentBidderIdx = (bidding.currentBidderIdx + 1) % 4
@@ -241,12 +242,13 @@ io.on('connection', socket => {
     const { bidding, seats } = game
     if (seats[bidding.currentBidderIdx].socketId !== socket.id) return
     if (!bidding.highBid || bidding.contree !== 'contree') return
-    const myTeam = seats.find(s => s.socketId === socket.id).team
+    const myTeam = seats.find(s => s.socketId === socket.id)?.team
     if (bidding.highBid.team !== myTeam) return
 
+    const roomId = player.roomId
     bidding.contree = 'surcontree'
-    io.to(player.roomId).emit('bid:surcontree-announced')
-    setTimeout(() => bidWon(player.roomId), 1500)
+    io.to(roomId).emit('bid:surcontree-announced')
+    setTimeout(() => bidWon(roomId), 1500)
   })
 
   // ── play:card ─────────────────────────────────────────────────
@@ -254,7 +256,7 @@ io.on('connection', socket => {
     const player = players.get(socket.id)
     if (!player?.roomId) return
     const game = games.get(player.roomId)
-    if (!game || game.phase !== 'playing') return
+    if (!game || game.phase !== 'playing' || !game.trickState || !game.trump) return
     const { trickState, seats, hands, trump } = game
     if (seats[trickState.currentPlayerIdx].socketId !== socket.id) return
 
@@ -266,7 +268,7 @@ io.on('connection', socket => {
     if (!valid.some(c => c.rank === rank && c.suit === suit)) return
 
     const bh = trickState.beloteHolder
-    let beloteAnnounce = null
+    let beloteAnnounce: 'belote' | 'rebelote' | null = null
     if (bh?.socketId === socket.id && suit === trump && (rank === 'K' || rank === 'Q')) {
       beloteAnnounce = (bh.played.K || bh.played.Q) ? 'rebelote' : 'belote'
       bh.played[rank] = true
@@ -294,7 +296,7 @@ io.on('connection', socket => {
     const sessionId = players.get(socket.id)?.sessionId
 
     if (sessionId && sessions.has(sessionId)) {
-      sessions.get(sessionId).timer = setTimeout(() => {
+      sessions.get(sessionId)!.timer = setTimeout(() => {
         console.log('session expired:', sessionId)
         leaveRoom(socket.id)
         players.delete(socket.id)
