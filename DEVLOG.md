@@ -47,6 +47,23 @@ en étape 2), `scripts/*.js` (outillage dev).
 Note relevée pour l'étape 2 : **`computeGameScore` est dupliqué** (server `game.ts` renvoie
 `TeamScores` / client `scoring.ts` renvoie `{result, fulfilled}`) → cible de dédup vers `shared/`.
 
-### Étape 2 — Refactor moteur (EN COURS)
-Cibles : dédup scoring → `shared/`, extraction des magic numbers/constantes, découpe des god files
-serveur (`index.ts`, `game.ts`), suppression de `canvas.js`. On ne touche pas au renderer.
+### Étape 2 — Refactor moteur (FAITE)
+On ne touche pas au renderer (`game.js`), comme prévu.
+
+- `refactor` — **dédup + constantes partagées** : `shared/constants.ts` (source unique des
+  RANKS/SUITS/BID_VALUES, ordres de force, points, layout sièges, symboles, et nombres de scoring
+  nommés) + `shared/scoring.ts` (`computeGameScore` canonique, était dupliqué serveur/client avec
+  des signatures divergentes). Suppression du `canvas.js` mort.
+- `refactor` — **découpe du god file `index.ts`** (311 → 39 lignes) en
+  `server/handlers/{session,room,bidding,play}.ts`, chacun exposant `register*Handlers(io, socket)`.
+  Alias `AppServer`/`AppSocket` dans `server/io-types.ts`.
+- `refactor` — **extraction des règles pures** : `server/rules.ts` (getValidCards, trickWinnerCard,
+  cardPoints, buildDeck, shuffle — sans io, testables). `game.ts` 293 → 233 lignes (flux io only).
+
+Plus aucun fichier serveur > 233 lignes. Vérifs à chaque commit : `tsc` clean · `vite build` OK ·
+`test-game.js` vert.
+
+### Étape 3 — Responsive + juice (À VENIR)
+Réécriture du renderer `game.js`. Décisions à prendre à ce moment (avec mini-proto) :
+rendu canvas vs DOM/CSS vs hybride · lib de juice (GSAP probable). C'est là que la découpe du
+dernier god file (`game.js`, 706 lignes) se fera, sur une base propre.

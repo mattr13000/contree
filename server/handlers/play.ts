@@ -1,5 +1,6 @@
 import { players, games } from '../state.js'
-import { getValidCards, emitPlayState, resolveTrick } from '../game.js'
+import { emitPlayState, resolveTrick } from '../game.js'
+import { getValidCards } from '../rules.js'
 import type { AppServer, AppSocket } from '../io-types.js'
 
 /** play:card — validate, apply, advance the trick. */
