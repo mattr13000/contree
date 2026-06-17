@@ -63,6 +63,19 @@ On ne touche pas au renderer (`game.js`), comme prévu.
 Plus aucun fichier serveur > 233 lignes. Vérifs à chaque commit : `tsc` clean · `vite build` OK ·
 `test-game.js` vert.
 
+### Étape 2 bis — Découpe du god file client `main.ts`
+`main.ts` (290 lignes, tout mélangé) → **bootstrap de 23 lignes** : liste plate d'`init*()`.
+Miroir de `server/handlers/`, mais côté client (DOM + socket par feature) :
+
+- `socket.ts` — l'instance socket typée, partagée.
+- `clientState.ts` — état transverse (`myTeam`, get/set).
+- `announcements.ts` — helpers d'animation (`slamIn`, `scheduleHide`, `flashAnnouncement`).
+- `features/{mediaControls,nickname,lobby,waiting,bidding,play,gameFlow,scoreModal,session}.ts` —
+  un module par concern, chacun exposant `init*()` qui câble ses listeners DOM + socket.
+
+Chaque event socket est désormais enregistré dans **un seul** fichier (audité : 18 events, 0 doublon).
+Plus aucun fichier client > 159 lignes (`bid-ui.ts`), le reste < 85. Vérifs : `tsc` clean · `vite build` OK.
+
 ### Étape 3 — Responsive + juice (À VENIR)
 Réécriture du renderer `game.js`. Décisions à prendre à ce moment (avec mini-proto) :
 rendu canvas vs DOM/CSS vs hybride · lib de juice (GSAP probable). C'est là que la découpe du
