@@ -27,6 +27,9 @@ desktop.ini
 .claudeignore
 CLAUDE.md
 
+# UI design prototype / tuner (scratch — not shipped)
+proto/
+
 # Editors
 .vscode/
 .idea/

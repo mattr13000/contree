@@ -76,7 +76,22 @@ Miroir de `server/handlers/`, mais côté client (DOM + socket par feature) :
 Chaque event socket est désormais enregistré dans **un seul** fichier (audité : 18 events, 0 doublon).
 Plus aucun fichier client > 159 lignes (`bid-ui.ts`), le reste < 85. Vérifs : `tsc` clean · `vite build` OK.
 
-### Étape 3 — Responsive + juice (À VENIR)
-Réécriture du renderer `game.js`. Décisions à prendre à ce moment (avec mini-proto) :
-rendu canvas vs DOM/CSS vs hybride · lib de juice (GSAP probable). C'est là que la découpe du
-dernier god file (`game.js`, 706 lignes) se fera, sur une base propre.
+### Étape 3 — Responsive + juice (EN COURS)
+Réécriture du renderer `game.js`. C'est là que la découpe du dernier god file (`game.js`,
+706 lignes) se fait, sur une base propre.
+
+**Décision de rendu prise — approche HYBRIDE** (mini-proto côte à côte à l'appui, dans `proto/` :
+`proto-dom.html` vs `proto-canvas.html`, même scénario de juice animé à GSAP des deux côtés) :
+- **Cartes + HUD + annonces → DOM/CSS.** ~36–50 entités max, structurées et interactives :
+  le DOM rend gratuit ce qui est du code manuel pénible dans le canvas actuel (hit-test, hover,
+  highlight `.valid`, texte/HUD, responsive via CSS). Très loin du seuil de perf (mobile bas de
+  gamme confortable ~100–200 nœuds animés en transform/opacity).
+- **Particules → `<canvas>` overlay** plein écran, `pointer-events:none`, au-dessus des cartes.
+  Une seule couche compositée quel que soit le nombre de particules (le DOM s'effondre sur des
+  centaines de petits nœuds créés/détruits en rafale ; le canvas en encaisse des milliers).
+- **Juice → GSAP** : anime à la fois les éléments DOM (cartes) **et** des objets JS (sim de
+  particules sur le canvas overlay). Cascade de donne, jeu du pli, ramassage, screen shake validés
+  dans le proto.
+
+Test FPS de stress (seuil exact mobile bas de gamme) reporté : non concluant sur un bon PC, à
+ressortir si besoin sur un vrai mobile.

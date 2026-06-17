@@ -771,3 +771,38 @@ button.hidden { display: none; }
   80%  { transform: translate(-50%, -50%)   rotate(-3deg) scale(1.06); opacity: 1; }
   100% { transform: translate(-50%, -50%)   rotate(3deg)  scale(1);    opacity: 1; }
 }
+
+/* ── Force portrait on phones (landscape mobile UI not built yet) ──────
+   Short landscape viewport (phones) → full-screen "rotate" overlay that
+   covers everything. Desktops/tablets (height > 600) are unaffected. */
+#rotate-notice { display: none; }
+@media (orientation: landscape) and (max-height: 600px) {
+  #rotate-notice {
+    display: flex;
+    position: fixed;
+    inset: 0;
+    z-index: 10000;
+    align-items: center;
+    justify-content: center;
+    text-align: center;
+    padding: 24px;
+    background: radial-gradient(ellipse 130% 80% at 50% 42%, #2f6b50 0%, #1c4233 55%, #102a20 100%);
+    color: #f0e6c8;
+  }
+  #rotate-notice .rotate-glyph {
+    font-size: 56px;
+    margin-bottom: 14px;
+    display: inline-block;
+    animation: rotate-hint 1.8s ease-in-out infinite;
+  }
+  #rotate-notice p {
+    font-size: 20px;
+    line-height: 1.4;
+    font-weight: bold;
+    text-shadow: 0 1px 4px #000;
+  }
+}
+@keyframes rotate-hint {
+  0%, 100% { transform: rotate(-12deg); }
+  50%      { transform: rotate(78deg); }
+}
