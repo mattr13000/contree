@@ -3,6 +3,8 @@ node_modules/
 
 # Build output
 dist/
+*.tsbuildinfo
+.vite/
 
 # Environment
 .env
@@ -20,8 +22,9 @@ yarn-error.log*
 Thumbs.db
 desktop.ini
 
-# Claude Code local config (machine-specific)
+# Claude Code (machine-specific, not version-controlled)
 .claude/
+.claudeignore
 CLAUDE.md
 
 # Editors
