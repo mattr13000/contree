@@ -1,10 +1,9 @@
-import type { Server } from 'socket.io'
 import { players, rooms, games, getRoomList, roomPayload } from './state.js'
 import type {
   Rank, Suit, Team, Card, PlayedCard, Seat, Room,
   TeamScores, BidInfo, LastAction, BeloteHolder, TrickState,
-  ClientToServerEvents, ServerToClientEvents,
 } from '../shared/types.js'
+import type { AppServer } from './io-types.js'
 import {
   RANKS, GAME_SUITS, TRUMP_RANK_ORDER, REGULAR_RANK_ORDER,
   TRUMP_POINTS, REGULAR_POINTS, POSITIONS, TEAMS,
@@ -70,8 +69,8 @@ function shuffle<T>(arr: T[]): T[] {
 }
 
 // ── io injection ──────────────────────────────────────────────────
-let io!: Server<ClientToServerEvents, ServerToClientEvents>
-export function init(_io: Server<ClientToServerEvents, ServerToClientEvents>): void { io = _io }
+let io!: AppServer
+export function init(_io: AppServer): void { io = _io }
 
 // ── Lobby helpers ─────────────────────────────────────────────────
 export function pushRoomList(): void {
