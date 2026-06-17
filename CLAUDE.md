@@ -6,18 +6,19 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 **Contrée** — a French 4-player card game (Belote variant) playable in the browser, multiplayer via WebSockets. No auth, no database, no scaling. Built for a small group of friends.
 
-**Stack:** Vite (frontend tooling) + vanilla JS Canvas (game rendering) + HTML/CSS (lobby UI) + Express + Socket.io (server) — single Node.js process serves everything in production.
+**Stack:** TypeScript (strict) throughout. Vite (frontend tooling) + Canvas (game rendering, the one remaining `.js` file) + HTML/CSS (lobby UI) + Express + Socket.io (server). The server runs under **`tsx`** (no separate `tsc` build step); Vite compiles the client. Single Node.js process serves everything in production.
 
-**Deploy:** Railway via GitHub integration. `npm run build` → `npm start`. Railway injects `PORT`.
+**Deploy:** Railway via GitHub integration. `npm run build` (Vite → `dist/`) → `npm start` (`tsx server/index.js`). Railway injects `PORT`. No compile step — `tsx` runs the TS server directly.
 
 ## Commands
 
 ```bash
-npm run dev        # start both server (nodemon, port 3001) and Vite dev server (port 5173) concurrently
-npm run dev:server # server only
+npm run dev        # both server (nodemon + tsx, port 3001) and Vite dev server (port 5173) concurrently
+npm run dev:server # server only (nodemon --exec tsx)
 npm run dev:client # Vite only
 npm run build      # Vite production build → dist/
-npm start          # production: Express serves dist/ + socket.io on $PORT
+npm start          # production: tsx server/index.js — Express serves dist/ + socket.io on $PORT
+npm run typecheck  # tsc (noEmit) — strict type-check of the whole project
 ```
 
 **Dev proxy:** Vite proxies `/socket.io` to `http://localhost:3001` — both must be running for the full flow to work.
@@ -40,23 +41,49 @@ Browser → Express :PORT → serves dist/ (static) + socket.io (ws)
 
 ### File structure (key files)
 
+> **TypeScript layout.** The codebase is TypeScript (strict) except `client/src/game.js`
+> (the canvas renderer, kept JS until the responsive rewrite). Where older notes below
+> say e.g. `main.js`, `index.js`, `state.js`, read the `.ts` equivalent. The two former
+> god files (`server/index.js`, `client/src/main.js`) were split into `handlers/` and
+> `features/`; shared domain logic now lives in `shared/`.
+
 ```
-server/index.js               — Express + Socket.io setup + all socket event handlers
-server/state.js               — the 4 state Maps (players, rooms, games, sessions) + pure helpers (migrateSocketId, getRoomList, roomPayload)
-server/game.js                — game constants, card logic (getValidCards, trickWinnerCard), deal/bid/trick flow; receives io via init()
+shared/types.ts               — domain types + socket payloads + ClientToServerEvents/ServerToClientEvents maps
+shared/constants.ts           — single source: RANKS/SUITS/BID_VALUES, rank orders, points, seat layout, suit symbols, scoring numbers
+shared/scoring.ts             — computeGameScore (canonical, used by both server and client)
+
+server/index.ts               — Express + Socket.io setup + connection wiring (thin)
+server/io-types.ts            — AppServer / AppSocket aliases (typed Server/Socket)
+server/state.ts               — the 4 state Maps (players, rooms, games, sessions) + helpers (migrateSocketId, getRoomList, roomPayload)
+server/rules.ts               — pure card logic (getValidCards, trickWinnerCard, cardPoints, buildDeck, shuffle) — no io
+server/game.ts                — io-driven flow (deal/bid/trick), receives io via init(); pushRoomList/leaveRoom
+server/handlers/session.ts    — session:restore + disconnect
+server/handlers/room.ts       — nickname:set, lobby:*, room:create/join/leave/start
+server/handlers/bidding.ts    — bid:place/pass/contree/surcontree
+server/handlers/play.ts       — play:card
+
 client/index.html             — single HTML file, all screen <div>s defined here
-client/src/main.js            — socket client + session/lobby/room/game socket handlers
-client/src/game.js            — canvas renderer + game state object (no DOM)
-client/src/bid-ui.js          — bid overlay UI state machine (button creation, refreshBidUI, applyBidUIState)
-client/src/scoring.js         — escapeHtml, computeGameScore, score state (gameScores, scoreTeamNames), updateScoreUI
-client/src/soundManager.js    — audio module: soundHover(), soundPlay()
-client/src/router.js          — showScreen(id): swaps .active class between screens
+client/src/main.ts            — thin bootstrap: calls each feature's init*()
+client/src/socket.ts          — the shared typed Socket.io client instance
+client/src/clientState.ts     — cross-cutting UI state (myTeam get/set)
+client/src/announcements.ts   — animation helpers (slamIn, scheduleHide, flashAnnouncement)
+client/src/game.js            — canvas renderer + game state object (no DOM) — the only remaining .js
+client/src/bid-ui.ts          — bid overlay UI state machine (button creation, refreshBidUI, applyBidUIState)
+client/src/scoring.ts         — escapeHtml, score state (gameScores, scoreTeamNames), updateScoreUI; re-exports computeGameScore from shared
+client/src/soundManager.ts    — audio module: soundHover(), soundPlay()
+client/src/router.ts          — showScreen(id): swaps .active class between screens
+client/src/dom.ts             — byId(): typed getElementById that asserts presence
+client/src/features/*.ts      — one module per concern (session, nickname, lobby, waiting, bidding, play, gameFlow, scoreModal, mediaControls), each exposing init*()
 client/src/style.css          — all styles (lobby panels + screen system)
-client/src/canvas.js          — resize-aware canvas init helper (unused in game, kept for reference)
+tsconfig.json                 — strict, noEmit, allowJs (for game.js); includes server/client/shared/scripts
 vite.config.js                — root: 'client', outDir: '../dist', proxy config
 client/public/Cards/Topdown/  — sprite sheets used by the game (88×124px per card, 5×3 grid)
 client/public/assets/         — static audio files (card-hover.mp3, card-play.mp3)
 ```
+
+**Each socket event is registered in exactly one place:** server-side in the matching
+`server/handlers/*.ts`, client-side in the matching `client/src/features/*.ts`. To add an
+event, declare it in `shared/types.ts` (one of the event maps) — both ends are then type-checked.
 
 ### Screen system (HTML + CSS)
 
@@ -267,6 +294,7 @@ Managed by `bid-ui.js`. `hideBidOverlay()` also closes this modal, ensuring it d
 ## Implementation status
 
 ### Done
+- **TypeScript migration + engine refactor (branch `ts-migration`):** whole codebase moved to TS strict (server runs under `tsx`, no build step; Vite compiles the client). `client/src/game.js` (renderer) intentionally left JS for the upcoming responsive rewrite. `shared/` holds the domain types + socket event maps + the single-source `constants.ts`/`scoring.ts` (the old `computeGameScore` duplication between server and client is gone). God files split: `server/index.js` → thin `index.ts` + `server/handlers/*`; `server/game.js` → `rules.ts` (pure) + `game.ts` (io flow); `client/src/main.js` → 23-line bootstrap + `client/src/features/*`. Each socket event is now registered in exactly one file. Verified: `tsc` clean, `vite build`, `scripts/test-game.js` (full 8-trick game + reconnect mid-trick), and a live `npm run dev` run. See `DEVLOG.md` for the full narrative. **Next: Step 3 — responsive + juice rewrite of `game.js` (rendering approach: canvas vs DOM/CSS vs hybrid, still to be decided; GSAP probable for juice).**
 - **Step A — Game canvas layout:** static canvas with 4 player positions, team colors, face-down side cards, pli zone, bid HUD placeholder.
 - **Step B — Server game init + dealing:** seat assignment, shuffle/deal, `game:dealt` emitted individually, server-side `games` Map stores hands for future validation.
 - **Step C — Bidding phase:** full bidding state machine (80–Capot, named suit), contree/surcontree, all-pass redeal with advancing dealer, HTML overlay with value/suit selector, bid won → `game:play-start` + `emitPlayState`. Surcontrée immediately ends bidding (no further passes needed) and triggers a 1.5s "Surcontré !" slam animation before play starts. Seat order shuffled once per session on first deal (then fixed); dealer index rotates each game. Contré/Surcontré/Belote/Rebelote each have a slam-in announcement overlay.
