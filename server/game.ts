@@ -1,29 +1,35 @@
+import type { Server } from 'socket.io'
 import { players, rooms, games, getRoomList, roomPayload } from './state.js'
+import type {
+  Rank, Suit, Team, Position, BidValue, Card, PlayedCard, Seat, Room,
+  TeamScores, BidInfo, LastAction, BeloteHolder, TrickState,
+  ClientToServerEvents, ServerToClientEvents,
+} from '../shared/types.js'
 
 // ── Constants ─────────────────────────────────────────────────────
-export const RANKS      = ['7', '8', '9', '10', 'J', 'Q', 'K', 'A']
-export const GAME_SUITS = ['Hearts', 'Diamonds', 'Clubs', 'Spades']
-export const BID_VALUES = [80, 90, 100, 110, 120, 130, 140, 150, 160, 'Capot']
-export function bidNumeric(v) { return v === 'Capot' ? 250 : v }
+export const RANKS:      Rank[] = ['7', '8', '9', '10', 'J', 'Q', 'K', 'A']
+export const GAME_SUITS: Suit[] = ['Hearts', 'Diamonds', 'Clubs', 'Spades']
+export const BID_VALUES: BidValue[] = [80, 90, 100, 110, 120, 130, 140, 150, 160, 'Capot']
+export function bidNumeric(v: BidValue): number { return v === 'Capot' ? 250 : v }
 
-const TRUMP_RANK_ORDER   = ['7','8','Q','K','10','A','9','J']
-const REGULAR_RANK_ORDER = ['7','8','9','J','Q','K','10','A']
-const TRUMP_POINTS   = { 'J':20,'9':14,'A':11,'10':10,'K':4,'Q':3,'8':0,'7':0 }
-const REGULAR_POINTS = { 'A':11,'10':10,'K':4,'Q':3,'J':2,'9':0,'8':0,'7':0 }
+const TRUMP_RANK_ORDER:   Rank[] = ['7','8','Q','K','10','A','9','J']
+const REGULAR_RANK_ORDER: Rank[] = ['7','8','9','J','Q','K','10','A']
+const TRUMP_POINTS:   Record<Rank, number> = { 'J':20,'9':14,'A':11,'10':10,'K':4,'Q':3,'8':0,'7':0 }
+const REGULAR_POINTS: Record<Rank, number> = { 'A':11,'10':10,'K':4,'Q':3,'J':2,'9':0,'8':0,'7':0 }
 
-const POSITIONS = ['south', 'west', 'north', 'east']
-const TEAMS     = ['A',     'B',    'A',     'B'   ]
+const POSITIONS: Position[] = ['south', 'west', 'north', 'east']
+const TEAMS:     Team[]     = ['A',     'B',    'A',     'B'   ]
 
 // ── Scoring ───────────────────────────────────────────────────────
-function computeGameScore(scores, tricksWon, beloteBonus, bid) {
+function computeGameScore(scores: TeamScores, tricksWon: TeamScores, beloteBonus: TeamScores, bid: BidInfo): TeamScores {
   const bTeam = bid.team
-  const oTeam = bTeam === 'A' ? 'B' : 'A'
+  const oTeam: Team = bTeam === 'A' ? 'B' : 'A'
   const mult  = bid.contree === 'surcontree' ? 4 : bid.contree === 'contree' ? 2 : 1
   const fulfilled = bid.value === 'Capot'
     ? tricksWon[oTeam] === 0
     : scores[bTeam] + beloteBonus[bTeam] >= bid.value
   const contractValue = (bid.value === 'Capot' ? 250 : bid.value) * mult
-  const result = { A: 0, B: 0 }
+  const result: TeamScores = { A: 0, B: 0 }
   if (fulfilled) {
     result[bTeam] = contractValue + beloteBonus[bTeam]
     result[oTeam] = beloteBonus[oTeam]
@@ -35,14 +41,14 @@ function computeGameScore(scores, tricksWon, beloteBonus, bid) {
 }
 
 // ── Pure helpers ──────────────────────────────────────────────────
-function trumpStrength(r)   { return TRUMP_RANK_ORDER.indexOf(r) }
-function regularStrength(r) { return REGULAR_RANK_ORDER.indexOf(r) }
+function trumpStrength(r: Rank): number   { return TRUMP_RANK_ORDER.indexOf(r) }
+function regularStrength(r: Rank): number { return REGULAR_RANK_ORDER.indexOf(r) }
 
-function cardPoints(rank, suit, trump) {
+function cardPoints(rank: Rank, suit: Suit, trump: Suit): number {
   return ((suit === trump) ? TRUMP_POINTS : REGULAR_POINTS)[rank] ?? 0
 }
 
-function trickWinnerCard(trick, trump) {
+function trickWinnerCard(trick: PlayedCard[], trump: Suit): PlayedCard {
   return trick.reduce((best, c) => {
     if (c.suit === trump && (best.suit !== trump || trumpStrength(c.rank) > trumpStrength(best.rank))) return c
     if (c.suit !== trump && c.suit === best.suit && best.suit !== trump && regularStrength(c.rank) > regularStrength(best.rank)) return c
@@ -50,7 +56,7 @@ function trickWinnerCard(trick, trump) {
   })
 }
 
-export function getValidCards(hand, trick, trump, mySocketId, seats) {
+export function getValidCards(hand: Card[], trick: PlayedCard[], trump: Suit, mySocketId: string, seats: Seat[]): Card[] {
   if (!trick.length) return hand
   const leadSuit    = trick[0].suit
   const leadIsTrump = leadSuit === trump
@@ -61,7 +67,7 @@ export function getValidCards(hand, trick, trump, mySocketId, seats) {
   const winnerSeat  = seats.find(s => s.socketId === winner.socketId)
   const partnerWins = mySeat && winnerSeat && mySeat.team === winnerSeat.team
   const highTrump   = trick.filter(c => c.suit === trump)
-    .reduce((b, c) => (!b || trumpStrength(c.rank) > trumpStrength(b.rank)) ? c : b, null)
+    .reduce<PlayedCard | null>((b, c) => (!b || trumpStrength(c.rank) > trumpStrength(b.rank)) ? c : b, null)
   const overtrumps  = highTrump
     ? trumpCards.filter(c => trumpStrength(c.rank) > trumpStrength(highTrump.rank))
     : trumpCards
@@ -76,13 +82,13 @@ export function getValidCards(hand, trick, trump, mySocketId, seats) {
   return hand
 }
 
-function buildDeck() {
-  const deck = []
+function buildDeck(): Card[] {
+  const deck: Card[] = []
   for (const suit of GAME_SUITS) for (const rank of RANKS) deck.push({ rank, suit })
   return deck
 }
 
-function shuffle(arr) {
+function shuffle<T>(arr: T[]): T[] {
   const a = [...arr]
   for (let i = a.length - 1; i > 0; i--) {
     const j = Math.floor(Math.random() * (i + 1));
@@ -92,15 +98,15 @@ function shuffle(arr) {
 }
 
 // ── io injection ──────────────────────────────────────────────────
-let io
-export function init(_io) { io = _io }
+let io!: Server<ClientToServerEvents, ServerToClientEvents>
+export function init(_io: Server<ClientToServerEvents, ServerToClientEvents>): void { io = _io }
 
 // ── Lobby helpers ─────────────────────────────────────────────────
-export function pushRoomList() {
+export function pushRoomList(): void {
   io.to('lobby').emit('rooms:list', getRoomList())
 }
 
-export function leaveRoom(socketId) {
+export function leaveRoom(socketId: string): void {
   const player = players.get(socketId)
   if (!player?.roomId) return
 
@@ -125,7 +131,7 @@ export function leaveRoom(socketId) {
 }
 
 // ── Game flow ─────────────────────────────────────────────────────
-export function deal(room) {
+export function deal(room: Room): void {
   const deck      = shuffle(buildDeck())
   const prevGame  = games.get(room.id)
   const dealerIdx = prevGame ? (prevGame.dealerIdx + 1) % 4 : 0
@@ -134,14 +140,14 @@ export function deal(room) {
   const playerOrder = prevGame
     ? prevGame.seats.map(s => s.socketId)
     : shuffle([...room.players])
-  const seats = playerOrder.map((socketId, i) => ({
+  const seats: Seat[] = playerOrder.map((socketId, i) => ({
     socketId,
     nickname: players.get(socketId)?.nickname ?? '?',
     position: POSITIONS[i],
     team:     TEAMS[i],
   }))
 
-  const hands = {}
+  const hands: Record<string, Card[]> = {}
   seats.forEach((seat, i) => { hands[seat.socketId] = deck.slice(i * 8, (i + 1) * 8) })
 
   games.set(room.id, {
@@ -163,7 +169,7 @@ export function deal(room) {
   emitBidState(room.id)
 }
 
-export function emitBidState(roomId, lastAction = null) {
+export function emitBidState(roomId: string, lastAction: LastAction | null = null): void {
   const game = games.get(roomId)
   if (!game) return
   const { bidding, seats } = game
@@ -175,9 +181,9 @@ export function emitBidState(roomId, lastAction = null) {
   })
 }
 
-export function bidWon(roomId) {
+export function bidWon(roomId: string): void {
   const game = games.get(roomId)
-  if (!game) return
+  if (!game || !game.bidding.highBid) return
   game.phase = 'playing'
   const trump          = game.bidding.highBid.suit
   game.trump           = trump
@@ -187,19 +193,21 @@ export function bidWon(roomId) {
     hand.some(c => c.suit === trump && c.rank === 'K') &&
     hand.some(c => c.suit === trump && c.rank === 'Q')
   )
-  game.trickState = {
+  const beloteHolder: BeloteHolder | null = beloteEntry ? {
+    socketId: beloteEntry[0],
+    team:     game.seats.find(s => s.socketId === beloteEntry[0])?.team,
+    played:   { K: false, Q: false },
+  } : null
+  const trickState: TrickState = {
     currentPlayerIdx: firstPlayerIdx,
     trickLeaderIdx:   firstPlayerIdx,
     trick:            [],
     tricksPlayed:     0,
     scores:           { A: 0, B: 0 },
     tricksWon:        { A: 0, B: 0 },
-    beloteHolder: beloteEntry ? {
-      socketId: beloteEntry[0],
-      team:     game.seats.find(s => s.socketId === beloteEntry[0])?.team,
-      played:   { K: false, Q: false },
-    } : null,
+    beloteHolder,
   }
+  game.trickState = trickState
 
   io.to(roomId).emit('game:play-start', {
     bid: {
@@ -215,9 +223,9 @@ export function bidWon(roomId) {
   emitPlayState(roomId)
 }
 
-export function emitPlayState(roomId) {
+export function emitPlayState(roomId: string): void {
   const game = games.get(roomId)
-  if (!game?.trickState) return
+  if (!game?.trickState || !game.trump) return
   const { trickState, seats, hands, trump } = game
   const current = seats[trickState.currentPlayerIdx]
 
@@ -239,8 +247,9 @@ export function emitPlayState(roomId) {
   io.to(current.socketId).emit('play:your-turn', { validCards })
 }
 
-export function resolveTrick(roomId) {
+export function resolveTrick(roomId: string): void {
   const game = games.get(roomId)
+  if (!game?.trickState || !game.trump || !game.bidding.highBid) return
   const { trickState, seats, trump } = game
 
   const winner     = trickWinnerCard(trickState.trick, trump)
@@ -267,12 +276,13 @@ export function resolveTrick(roomId) {
   })
 
   if (isLast) {
-    const beloteBonus = { A: 0, B: 0 }
+    const beloteBonus: TeamScores = { A: 0, B: 0 }
     const bh = trickState.beloteHolder
-    if (bh?.played.K && bh?.played.Q) beloteBonus[bh.team] += 20
+    if (bh?.played.K && bh?.played.Q && bh.team) beloteBonus[bh.team] += 20
 
     setTimeout(() => {
-      const bid = { ...game.bidding.highBid, contree: game.bidding.contree }
+      const hb = game.bidding.highBid!
+      const bid: BidInfo = { value: hb.value, suit: hb.suit, team: hb.team, contree: game.bidding.contree }
       io.to(roomId).emit('game:over', {
         scores:     trickState.scores,
         tricksWon:  trickState.tricksWon,
@@ -290,7 +300,7 @@ export function resolveTrick(roomId) {
         if (!r || r.players.length !== 4) return
         const { cumulativeScores, seats } = game
         if (cumulativeScores.A >= 500 || cumulativeScores.B >= 500) {
-          const winnerTeam = (cumulativeScores.A >= 500 && cumulativeScores.B >= 500)
+          const winnerTeam: Team = (cumulativeScores.A >= 500 && cumulativeScores.B >= 500)
             ? (cumulativeScores.A >= cumulativeScores.B ? 'A' : 'B')
             : cumulativeScores.A >= 500 ? 'A' : 'B'
           const winnerNicknames = seats.filter(s => s.team === winnerTeam).map(s => s.nickname)
