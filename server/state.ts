@@ -1,13 +1,14 @@
 import { randomUUID } from 'crypto'
+import type { Player, Room, GameState, Session, RoomListItem, RoomPayload } from '../shared/types.js'
 
-export const players  = new Map()
-export const rooms    = new Map()
-export const games    = new Map()
-export const sessions = new Map()
+export const players  = new Map<string, Player>()
+export const rooms    = new Map<string, Room>()
+export const games    = new Map<string, GameState>()
+export const sessions = new Map<string, Session>()
 
-export function generateId() { return randomUUID() }
+export function generateId(): string { return randomUUID() }
 
-export function migrateSocketId(oldId, newId) {
+export function migrateSocketId(oldId: string, newId: string): void {
   const player = players.get(oldId)
   if (!player) return
   player.id = newId
@@ -35,13 +36,13 @@ export function migrateSocketId(oldId, newId) {
   }
 }
 
-export function getRoomList() {
+export function getRoomList(): RoomListItem[] {
   return [...rooms.values()]
     .filter(r => r.players.length < 4)
     .map(r => ({ id: r.id, name: r.name, playerCount: r.players.length }))
 }
 
-export function roomPayload(room) {
+export function roomPayload(room: Room): RoomPayload {
   return {
     id:        room.id,
     name:      room.name,

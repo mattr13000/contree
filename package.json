@@ -3,16 +3,19 @@
   "version": "1.0.0",
   "type": "module",
   "scripts": {
-    "dev": "concurrently \"nodemon server/index.js\" \"vite\"",
-    "dev:bots": "node scripts/dev-bots.js",
-    "dev:server": "nodemon server/index.js",
+    "dev": "concurrently \"nodemon --exec tsx server/index.js\" \"vite\"",
+    "dev:bots": "tsx scripts/dev-bots.js",
+    "dev:server": "nodemon --exec tsx server/index.js",
     "dev:client": "vite",
     "build": "vite build",
-    "start": "node server/index.js"
+    "start": "tsx server/index.js",
+    "typecheck": "tsc"
   },
   "nodemonConfig": {
-    "watch": ["server"],
-    "ext": "js"
+    "watch": [
+      "server"
+    ],
+    "ext": "js,ts"
   },
   "dependencies": {
     "express": "^4.19.2",
@@ -20,8 +23,12 @@
     "socket.io-client": "^4.7.5"
   },
   "devDependencies": {
+    "@types/express": "^5.0.6",
+    "@types/node": "^25.9.3",
     "concurrently": "^8.2.2",
     "nodemon": "^3.1.0",
+    "tsx": "^4.22.4",
+    "typescript": "^6.0.3",
     "vite": "^5.2.0"
   }
 }
