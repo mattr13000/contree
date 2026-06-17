@@ -1,5 +1,5 @@
-import { showScreen } from './router.js'
-import { soundHover, soundPlay } from './soundManager.js'
+import { showScreen } from './router'
+import { soundHover, soundPlay } from './soundManager'
 
 const BASE_W          = 88
 const BASE_H          = 124

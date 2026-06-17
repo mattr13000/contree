@@ -1,4 +1,7 @@
-export function escapeHtml(str) {
+import { byId } from './dom.js'
+import type { Seat, Team, TeamScores, BidInfo } from '../../shared/types.js'
+
+export function escapeHtml(str: unknown): string {
   return String(str ?? '')
     .replace(/&/g, '&amp;')
     .replace(/</g, '&lt;')
@@ -7,9 +10,11 @@ export function escapeHtml(str) {
     .replace(/'/g, '&#39;')
 }
 
-export function computeGameScore(scores, tricksWon, beloteBonus, bid) {
+export function computeGameScore(
+  scores: TeamScores, tricksWon: TeamScores, beloteBonus: TeamScores, bid: BidInfo,
+): { result: TeamScores; fulfilled: boolean } {
   const bTeam = bid.team
-  const oTeam = bTeam === 'A' ? 'B' : 'A'
+  const oTeam: Team = bTeam === 'A' ? 'B' : 'A'
   const mult  = bid.contree === 'surcontree' ? 4 : bid.contree === 'contree' ? 2 : 1
 
   const bCardTotal = scores[bTeam] + beloteBonus[bTeam]
@@ -19,7 +24,7 @@ export function computeGameScore(scores, tricksWon, beloteBonus, bid) {
 
   const contractValue = (bid.value === 'Capot' ? 250 : bid.value) * mult
 
-  const result = { A: 0, B: 0 }
+  const result: TeamScores = { A: 0, B: 0 }
   if (fulfilled) {
     result[bTeam] = contractValue + beloteBonus[bTeam]
     result[oTeam] = beloteBonus[oTeam]
@@ -30,28 +35,30 @@ export function computeGameScore(scores, tricksWon, beloteBonus, bid) {
   return { result, fulfilled }
 }
 
-let gameScores     = []
-let scoreTeamNames = { my: [], opp: [] }
+interface ScoreRow { my: number; opp: number }
 
-export function resetScores() {
+let gameScores: ScoreRow[] = []
+let scoreTeamNames: { my: string[]; opp: string[] } = { my: [], opp: [] }
+
+export function resetScores(): void {
   gameScores     = []
   scoreTeamNames = { my: [], opp: [] }
 }
 
-export function setTeamNames(seats, myTeam) {
-  const opp = myTeam === 'A' ? 'B' : 'A'
+export function setTeamNames(seats: Seat[], myTeam: Team | null): void {
+  const opp: Team = myTeam === 'A' ? 'B' : 'A'
   scoreTeamNames = {
     my:  seats.filter(s => s.team === myTeam).map(s => s.nickname),
     opp: seats.filter(s => s.team === opp).map(s => s.nickname),
   }
 }
 
-export function recordGameResult(gameResult, myTeam) {
-  const opp = myTeam === 'A' ? 'B' : 'A'
+export function recordGameResult(gameResult: TeamScores, myTeam: Team): void {
+  const opp: Team = myTeam === 'A' ? 'B' : 'A'
   gameScores.push({ my: gameResult[myTeam], opp: gameResult[opp] })
 }
 
-function buildScoreTableHTML() {
+function buildScoreTableHTML(): string {
   const myNames  = scoreTeamNames.my.map(escapeHtml).join(' &amp; ')
   const oppNames = scoreTeamNames.opp.map(escapeHtml).join(' &amp; ')
   const myTotal  = gameScores.reduce((s, g) => s + g.my,  0)
@@ -69,8 +76,8 @@ function buildScoreTableHTML() {
   </table>`
 }
 
-export function updateScoreUI() {
+export function updateScoreUI(): void {
   const html = buildScoreTableHTML()
-  document.getElementById('score-panel').innerHTML = html
-  document.getElementById('score-modal-content').innerHTML = html
+  byId('score-panel').innerHTML = html
+  byId('score-modal-content').innerHTML = html
 }

@@ -8,18 +8,18 @@ sounds.play.volume  = 0.5
 
 let muted = false
 
-export function toggleMute() {
+export function toggleMute(): boolean {
   muted = !muted
   return muted
 }
 
-export function soundHover() {
+export function soundHover(): void {
   if (muted) return
   sounds.hover.currentTime = 0
   sounds.hover.play().catch(() => {})
 }
 
-export function soundPlay() {
+export function soundPlay(): void {
   if (muted) return
   sounds.play.currentTime = 0
   sounds.play.play().catch(() => {})
@@ -34,7 +34,7 @@ music.volume = 0
 let musicMuted   = false
 let musicStarted = false
 
-export function startMusic() {
+export function startMusic(): void {
   if (musicStarted) return
   music.play().then(() => {
     musicStarted = true
@@ -50,7 +50,7 @@ export function startMusic() {
   }).catch(() => {})
 }
 
-export function toggleMusicMute() {
+export function toggleMusicMute(): boolean {
   musicMuted   = !musicMuted
   music.muted  = musicMuted
   return musicMuted
