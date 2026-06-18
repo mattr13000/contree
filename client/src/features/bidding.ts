@@ -1,10 +1,10 @@
-import { byId } from '../dom.js'
-import { socket } from '../socket.js'
-import { escapeHtml } from '../scoring.js'
-import { initBidUI, hideBidOverlay, applyBidUIState } from '../bid-ui.js'
-import { applyBidState, applyPlayStart, runAfterDeal } from '../game.js'
-import { slamIn, scheduleHide, flashAnnouncement } from '../announcements.js'
-import { getMyTeam } from '../clientState.js'
+import { byId } from '../core/dom.js'
+import { socket } from '../core/socket.js'
+import { escapeHtml } from '../ui/scoring.js'
+import { initBidUI, hideBidOverlay, applyBidUIState } from '../ui/bid-ui.js'
+import { applyBidState, applyPlayStart, runAfterDeal } from '../game/index.js'
+import { slamIn, scheduleHide, flashAnnouncement } from '../ui/announcements.js'
+import { getMyTeam } from '../core/clientState.js'
 import { SUIT_SYMBOLS } from '../../../shared/constants.js'
 import type { LastAction } from '../../../shared/types.js'
 
@@ -41,14 +41,18 @@ export function initBidding(): void {
   })
 
   socket.on('bid:state', data => {
-    applyBidState(data)
-    if (data.lastAction) {
-      if (bidActionTimer) clearTimeout(bidActionTimer)
-      showBidAction(data.lastAction)
-      bidActionTimer = setTimeout(() => runAfterDeal(() => applyBidUIState(data, socket.id!, getMyTeam())), BID_ACTION_MS)
-    } else {
-      runAfterDeal(() => applyBidUIState(data, socket.id!, getMyTeam()))
-    }
+    // The whole bid UI (turn indicator, HUD, action announcement, overlay) waits for
+    // the deal + "Annonces" lock to lift — nothing should surface mid-deal.
+    runAfterDeal(() => {
+      applyBidState(data)
+      if (data.lastAction) {
+        if (bidActionTimer) clearTimeout(bidActionTimer)
+        showBidAction(data.lastAction)
+        bidActionTimer = setTimeout(() => applyBidUIState(data, socket.id!, getMyTeam()), BID_ACTION_MS)
+      } else {
+        applyBidUIState(data, socket.id!, getMyTeam())
+      }
+    })
   })
 
   socket.on('game:play-start', data => {

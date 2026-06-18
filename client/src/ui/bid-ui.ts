@@ -1,6 +1,6 @@
-import { byId } from './dom.js'
-import { BID_VALUES, SUIT_SYMBOLS as SUIT_LABELS, bidNumeric } from '../../shared/constants.js'
-import type { Suit, Team, BidValue, BidStatePayload } from '../../shared/types.js'
+import { byId } from '../core/dom.js'
+import { BID_VALUES, SUIT_SYMBOLS as SUIT_LABELS, bidNumeric } from '../../../shared/constants.js'
+import type { Suit, Team, BidValue, BidStatePayload } from '../../../shared/types.js'
 
 let selectedValue:   BidValue | null = null
 let selectedSuit:    Suit | null = null

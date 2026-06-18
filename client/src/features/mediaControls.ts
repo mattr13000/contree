@@ -1,5 +1,5 @@
-import { byId } from '../dom.js'
-import { toggleMute, toggleMusicMute, startMusic } from '../soundManager.js'
+import { byId } from '../core/dom.js'
+import { toggleMute, toggleMusicMute, startMusic } from '../audio/soundManager.js'
 
 /** Bottom-right mute/music buttons + first-gesture music autostart. */
 export function initMediaControls(): void {

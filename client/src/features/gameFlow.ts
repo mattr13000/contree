@@ -1,9 +1,9 @@
-import { byId } from '../dom.js'
-import { showScreen } from '../router.js'
-import { socket } from '../socket.js'
-import { initGame, applyDealt, lockForDeal, state } from '../game.js'
-import { escapeHtml, computeGameScore, setTeamNames, recordGameResult, updateScoreUI } from '../scoring.js'
-import { getMyTeam, setMyTeam } from '../clientState.js'
+import { byId } from '../core/dom.js'
+import { showScreen } from '../core/router.js'
+import { socket } from '../core/socket.js'
+import { initGame, applyDealt, lockForDeal, state } from '../game/index.js'
+import { escapeHtml, computeGameScore, setTeamNames, recordGameResult, updateScoreUI } from '../ui/scoring.js'
+import { getMyTeam, setMyTeam } from '../core/clientState.js'
 import type { Team } from '../../../shared/types.js'
 
 /** Round lifecycle: deal → game-over modal → session victory. */

@@ -1,7 +1,7 @@
-import { byId } from '../dom.js'
-import { showScreen } from '../router.js'
-import { socket } from '../socket.js'
-import { escapeHtml, resetScores } from '../scoring.js'
+import { byId } from '../core/dom.js'
+import { showScreen } from '../core/router.js'
+import { socket } from '../core/socket.js'
+import { escapeHtml, resetScores } from '../ui/scoring.js'
 import type { RoomPayload } from '../../../shared/types.js'
 
 /** Render the 4-slot waiting room. Exported because session restore reuses it. */

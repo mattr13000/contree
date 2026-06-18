@@ -1,6 +1,6 @@
-import { socket } from '../socket.js'
-import { setOnCardPlay, applyPlayState, applyYourTurn, applyTrickWon } from '../game.js'
-import { flashAnnouncement } from '../announcements.js'
+import { socket } from '../core/socket.js'
+import { setOnCardPlay, applyPlayState, applyYourTurn, applyTrickWon } from '../game/index.js'
+import { flashAnnouncement } from '../ui/announcements.js'
 import type { Rank, Suit } from '../../../shared/types.js'
 
 /** Trick play: send clicked cards, apply trick state, belote announcements. */

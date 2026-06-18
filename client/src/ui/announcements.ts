@@ -1,4 +1,4 @@
-import { byId } from './dom.js'
+import { byId } from '../core/dom.js'
 
 // Per-element auto-hide timers (replaces the old el._hideTimer custom property).
 const hideTimers = new WeakMap<HTMLElement, ReturnType<typeof setTimeout>>()
