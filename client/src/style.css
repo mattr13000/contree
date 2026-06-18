@@ -747,52 +747,119 @@ button.hidden { display: none; }
   #score-panel:not(.hidden) { display: block; }
 }
 
-/* ── Bottom-right media buttons ──────────────────────────────── */
-#music-btn,
-#mute-btn {
+/* ── Bottom-right settings gear ──────────────────────────────── */
+#settings-btn {
   position: fixed;
   bottom: 16px;
+  right: 16px;
   width: 40px;
   height: 40px;
   border-radius: 50%;
   border: none;
   background: rgba(0, 0, 0, 0.45);
   color: #fff;
-  font-size: 18px;
+  font-size: 20px;
   cursor: pointer;
   z-index: 50;
   display: none;
-  overflow: visible;
   align-items: center;
   justify-content: center;
   padding: 0;
+  line-height: 1;
 }
-#music-btn { right: 68px; }
-#mute-btn  { right: 16px; }
-#music-btn:hover,
-#mute-btn:hover { background: rgba(0, 0, 0, 0.65); }
+#settings-btn:hover { background: rgba(0, 0, 0, 0.65); }
 
-#screen-lobby.active     ~ #music-btn,
-#screen-room-list.active ~ #music-btn,
-#screen-waiting.active   ~ #music-btn,
-#game.active             ~ #music-btn { display: flex; }
-#screen-lobby.active     ~ #mute-btn,
-#screen-room-list.active ~ #mute-btn,
-#screen-waiting.active   ~ #mute-btn,
-#game.active             ~ #mute-btn  { display: flex; }
+#screen-lobby.active     ~ #settings-btn,
+#screen-room-list.active ~ #settings-btn,
+#screen-waiting.active   ~ #settings-btn,
+#game.active             ~ #settings-btn { display: flex; }
 
-#music-btn.muted::after {
-  content: '';
-  position: absolute;
-  width: 2px;
-  height: 130%;
-  background: #ff4444;
-  top: -15%;
-  left: calc(50% - 1px);
-  transform: rotate(-45deg);
-  border-radius: 1px;
-  pointer-events: none;
+/* ── Settings modal ──────────────────────────────────────────── */
+#settings-modal {
+  position: fixed;
+  inset: 0;
+  z-index: 200;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.55);
 }
+#settings-modal.hidden { display: none; }
+#settings-box {
+  background: linear-gradient(180deg, #1e3c2e, #142a20);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 16px;
+  padding: 22px 24px;
+  width: min(340px, 88vw);
+  box-shadow: 0 18px 48px rgba(0, 0, 0, 0.6);
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+#settings-box h3 {
+  margin: 0 0 2px;
+  text-align: center;
+  font-size: 1.3rem;
+  color: #ffe9b0;
+}
+.settings-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.settings-label { font-size: 0.95rem; }
+.vol-control {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.vol-btn {
+  width: 30px;
+  height: 30px;
+  border-radius: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  background: rgba(0, 0, 0, 0.3);
+  color: #fff;
+  font-size: 18px;
+  line-height: 1;
+  cursor: pointer;
+  padding: 0;
+}
+.vol-btn:hover { background: rgba(0, 0, 0, 0.5); }
+.vol-value {
+  min-width: 44px;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+  font-weight: bold;
+}
+.settings-toggle {
+  padding: 6px 14px;
+  border-radius: 8px;
+  border: 1px solid rgba(106, 176, 255, 0.5);
+  background: rgba(106, 176, 255, 0.18);
+  color: #cfe6ff;
+  cursor: pointer;
+  font-size: 0.85rem;
+}
+.settings-toggle.off {
+  border-color: rgba(255, 255, 255, 0.2);
+  background: rgba(0, 0, 0, 0.3);
+  color: #aaa;
+}
+.settings-danger {
+  margin-top: 6px;
+  background: rgba(190, 52, 52, 0.85);
+  color: #fff;
+}
+.settings-danger.confirming {
+  background: rgba(220, 38, 38, 1);
+  animation: pulse-danger 0.9s ease-in-out infinite;
+}
+@keyframes pulse-danger {
+  50% { box-shadow: 0 0 0 4px rgba(220, 38, 38, 0.4); }
+}
+.settings-danger.hidden { display: none; }
 
 /* ── Score button (top-right, narrow screens) ────────────────── */
 #score-btn {
