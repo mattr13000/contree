@@ -26,6 +26,21 @@ export function reflowHand(pos: Position, animate: boolean): void {
   handNodes[pos].forEach((node, i) => place(node.el, layout[i][0], layout[i][1], layout[i][2], layout[i][3], animate))
 }
 
+// Per-hand fan z-bases (mirror dealCascade's finalZ: south 32, west 40, north 48,
+// east 56, each +i so a higher index sits on top; all below the pli at PLI_Z_BASE).
+// Re-applied whenever a hand's node order changes outside the deal cascade: after the
+// play-start re-sort (south), and on the session-restore snap-in (all four — no
+// cascade runs to assign z there). Without this the left→right stacking breaks and a
+// card's top-left index hides under its right neighbour.
+const HAND_Z_BASE: Record<Position, number> = { south: 32, west: 40, north: 48, east: 56 }
+export function restackHand(pos: Position): void {
+  handNodes[pos].forEach((node, i) => { node.el.style.zIndex = String(HAND_Z_BASE[pos] + i) })
+}
+export function restackHands(): void {
+  for (const pos of ['south', 'west', 'north', 'east'] as Position[]) restackHand(pos)
+}
+export const restackSouthHand = (): void => restackHand('south')
+
 // ── Deal-animation gate ───────────────────────────────────────────────
 // The bid UI must stay hidden until the deal + "Annonces" banner finish.
 // game:dealt is async (`await initGame`), so the initial bid:state can fire
@@ -142,13 +157,18 @@ export function dealCascade(): void {
 export function flyToPli(pos: Position, node: CardNode, socketId: string, reveal?: Card): void {
   const idx = handNodes[pos].indexOf(node)
   if (idx >= 0) handNodes[pos].splice(idx, 1)
-  if (reveal) setNodeFace(node, reveal.rank, reveal.suit)
   node.el.classList.remove('valid', 'invalid', 'lift')
   if (socketId !== state.mySocketId) soundPlay()   // my own card already sounded in playCard
   pliNodes.push({ from: pos, socketId, node })
   node.el.style.zIndex = String(PLI_Z_BASE + pliNodes.length)   // fixed by play order, set once
   const area = playfield(), off = pliOffset(pos)
   place(node.el, area.centerX + off[0], area.centerY + off[1], (pliNodes.length - 1 - 1.5) * cfg.pli.rot, 1, true)
+  // Reveal the face a beat INTO the flight, not at the hand's edge: revealing in the
+  // same frame the move tween is created let the browser paint the face-up card once
+  // at its resting spot before GSAP's first tick moved it — a one-frame flash that
+  // read as a "clip", worst at east/west (rotated, against the screen edge). Flipping
+  // mid-flight (the card travels face-down, then turns over) removes it.
+  if (reveal) gsap.delayedCall(ANIMATION.cardMove.duration * 0.25, () => setNodeFace(node, reveal.rank, reveal.suit))
   if (idx >= 0) reflowHand(pos, true)
 }
 

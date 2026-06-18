@@ -29,7 +29,7 @@ export function initSession(): void {
       setMyTeam(restored.dealt.seats.find(s => s.socketId === socket.id)?.team ?? null)
       showScreen('game')
       initGame(byId<HTMLDivElement>('game'), socket.id).then(() => {
-        applyDealt(restored.dealt)
+        applyDealt(restored.dealt, false)   // snap into place — don't replay the deal cascade on F5
         if (restored.bidState) {
           runAfterDeal(() => {
             applyBidState(restored.bidState!)
