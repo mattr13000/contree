@@ -1,4 +1,4 @@
-import { byId } from '../dom.js'
+import { byId } from '../core/dom.js'
 
 /** Open/close the cumulative score table modal. */
 export function initScoreModal(): void {

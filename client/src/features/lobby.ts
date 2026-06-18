@@ -1,6 +1,6 @@
-import { byId } from '../dom.js'
-import { showScreen } from '../router.js'
-import { socket } from '../socket.js'
+import { byId } from '../core/dom.js'
+import { showScreen } from '../core/router.js'
+import { socket } from '../core/socket.js'
 
 /** Lobby buttons (create / browse / back) + the room-list screen. */
 export function initLobby(): void {

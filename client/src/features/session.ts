@@ -1,11 +1,11 @@
-import { byId } from '../dom.js'
-import { showScreen } from '../router.js'
-import { socket } from '../socket.js'
-import { startMusic } from '../soundManager.js'
-import { initGame, applyDealt, applyBidState, applyPlayState, runAfterDeal } from '../game.js'
-import { applyBidUIState } from '../bid-ui.js'
+import { byId } from '../core/dom.js'
+import { showScreen } from '../core/router.js'
+import { socket } from '../core/socket.js'
+import { startMusic } from '../audio/soundManager.js'
+import { initGame, applyDealt, applyBidState, applyPlayState, runAfterDeal } from '../game/index.js'
+import { applyBidUIState } from '../ui/bid-ui.js'
 import { renderWaiting } from './waiting.js'
-import { getMyTeam, setMyTeam } from '../clientState.js'
+import { getMyTeam, setMyTeam } from '../core/clientState.js'
 
 /** Session persistence: restore on (re)connect and jump to the right screen. */
 export function initSession(): void {

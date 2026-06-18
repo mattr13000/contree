@@ -1,7 +1,7 @@
-import { byId } from '../dom.js'
-import { showScreen } from '../router.js'
-import { socket } from '../socket.js'
-import { startMusic } from '../soundManager.js'
+import { byId } from '../core/dom.js'
+import { showScreen } from '../core/router.js'
+import { socket } from '../core/socket.js'
+import { startMusic } from '../audio/soundManager.js'
 
 /** Nickname entry screen → lobby. */
 export function initNickname(): void {

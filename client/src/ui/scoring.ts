@@ -1,9 +1,9 @@
-import { byId } from './dom.js'
-import type { Seat, Team, TeamScores } from '../../shared/types.js'
+import { byId } from '../core/dom.js'
+import type { Seat, Team, TeamScores } from '../../../shared/types.js'
 
-// Re-exported so existing client imports (`./scoring.js`) keep working;
+// Re-exported so existing client imports (`../ui/scoring.js`) keep working;
 // the implementation lives in shared/ (single source of truth with the server).
-export { computeGameScore } from '../../shared/scoring.js'
+export { computeGameScore } from '../../../shared/scoring.js'
 
 export function escapeHtml(str: unknown): string {
   return String(str ?? '')
