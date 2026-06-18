@@ -16,6 +16,10 @@ import { state, seatBySocket } from './state.js'
 import { soundPlay } from '../audio/soundManager.js'
 import type { Position, Rank, Suit, Card } from '../../../shared/types.js'
 
+// Pli cards stack above the hands; each card's z is fixed to its play order at
+// drop time (1st played sits under the 2nd, etc.) so they never re-clip on reflow.
+const PLI_Z_BASE = 64
+
 // Re-fan a hand into its current layout (used after a card leaves it).
 export function reflowHand(pos: Position, animate: boolean): void {
   const layout = layoutHand(pos, handNodes[pos].length)
@@ -142,6 +146,7 @@ export function flyToPli(pos: Position, node: CardNode, socketId: string, reveal
   node.el.classList.remove('valid', 'invalid', 'lift')
   if (socketId !== state.mySocketId) soundPlay()   // my own card already sounded in playCard
   pliNodes.push({ from: pos, socketId, node })
+  node.el.style.zIndex = String(PLI_Z_BASE + pliNodes.length)   // fixed by play order, set once
   const area = playfield(), off = pliOffset(pos)
   place(node.el, area.centerX + off[0], area.centerY + off[1], (pliNodes.length - 1 - 1.5) * cfg.pli.rot, 1, true)
   if (idx >= 0) reflowHand(pos, true)

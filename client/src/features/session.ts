@@ -31,8 +31,10 @@ export function initSession(): void {
       initGame(byId<HTMLDivElement>('game'), socket.id).then(() => {
         applyDealt(restored.dealt)
         if (restored.bidState) {
-          applyBidState(restored.bidState)
-          runAfterDeal(() => applyBidUIState(restored.bidState!, socket.id!, getMyTeam()))
+          runAfterDeal(() => {
+            applyBidState(restored.bidState!)
+            applyBidUIState(restored.bidState!, socket.id!, getMyTeam())
+          })
         } else if (restored.playState) {
           applyPlayState(restored.playState)
         }

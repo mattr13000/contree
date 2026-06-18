@@ -41,14 +41,18 @@ export function initBidding(): void {
   })
 
   socket.on('bid:state', data => {
-    applyBidState(data)
-    if (data.lastAction) {
-      if (bidActionTimer) clearTimeout(bidActionTimer)
-      showBidAction(data.lastAction)
-      bidActionTimer = setTimeout(() => runAfterDeal(() => applyBidUIState(data, socket.id!, getMyTeam())), BID_ACTION_MS)
-    } else {
-      runAfterDeal(() => applyBidUIState(data, socket.id!, getMyTeam()))
-    }
+    // The whole bid UI (turn indicator, HUD, action announcement, overlay) waits for
+    // the deal + "Annonces" lock to lift — nothing should surface mid-deal.
+    runAfterDeal(() => {
+      applyBidState(data)
+      if (data.lastAction) {
+        if (bidActionTimer) clearTimeout(bidActionTimer)
+        showBidAction(data.lastAction)
+        bidActionTimer = setTimeout(() => applyBidUIState(data, socket.id!, getMyTeam()), BID_ACTION_MS)
+      } else {
+        applyBidUIState(data, socket.id!, getMyTeam())
+      }
+    })
   })
 
   socket.on('game:play-start', data => {
