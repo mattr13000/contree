@@ -44,3 +44,6 @@ Cards/Isometric/
 # Personal dev stuff
 DEVLOG.md
 plan/
+
+# Code review reports (local scratch)
+audits/
