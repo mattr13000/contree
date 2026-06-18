@@ -33,6 +33,7 @@ const PRESET = {
     pli:   { spread: 0.78, rot: 6 },
     plate: { southY: 1.10, northY: 1.16, sideGap: 0.40, sideY: 0.0 },
     hud:   { bidY: 0.0, contractY: 0.92 },
+    confirm: { cardY: 0.90, scale: 1.30, boxY: 1.89, boxGap: 0.40, boxSize: 58 },
   },
   portrait: {
     page:  { margin: 0.06, maxAspect: 1.4 },
@@ -43,6 +44,7 @@ const PRESET = {
     pli:   { spread: 0.62, rot: 6 },
     plate: { southY: 1.9, northY: 0.55, sideGap: 0.45, sideY: 0.0 },
     hud:   { bidY: 0.0, contractY: 1.2 },
+    confirm: { cardY: -0.10, scale: 1.35, boxY: 1.30, boxGap: 1.20, boxSize: 60 },
   },
 }
 const pickPreset = () => (Math.min(window.innerWidth, window.innerHeight) < 600) ? 'portrait' : 'desktop'
@@ -132,6 +134,9 @@ export const state = {
 let onCardPlay = null
 export function setOnCardPlay(cb) { onCardPlay = cb }
 
+// Card chosen but not yet confirmed (tap-to-confirm, anti-misclick). { rank, suit } | null
+let pendingCard = null
+
 let root = null, initialized = false
 
 // ── Entry ─────────────────────────────────────────────────────────
@@ -176,6 +181,7 @@ export function applyDealt(data) {
     }
   })
 
+  pendingCard              = null
   state.myHand             = sortHand(data.myHand)
   state.pli                = []
   state.bid                = null
@@ -203,6 +209,7 @@ export function applyBidState(data) {
 }
 
 export function applyPlayStart(data) {
+  pendingCard          = null
   state.bid            = data.bid
   state.trump          = data.trump
   state.bidderNickname = null
@@ -294,23 +301,49 @@ function renderOpponent(pos, frag) {
   frag.appendChild(plate(s))
 }
 
-// South face-up hand + interaction + plate.
+// South face-up hand + interaction + plate. When a card is pending confirmation
+// it lifts to centre (scaled), the rest stay put under the dim overlay.
 function renderSouth(frag) {
   const s = seat('south')
   const n = state.myHand.length
   const lay = layoutHand('south', n)
   state.myHand.forEach(({ rank, suit }, i) => {
     const el = mkCard(true, rank, suit)
-    const isValid = state.isMyTurn && state.validCards.some(c => c.rank === rank && c.suit === suit)
-    if (state.isMyTurn) el.classList.add(isValid ? 'valid' : 'invalid')
-    place(el, lay[i][0], lay[i][1], lay[i][2], lay[i][3])
-    if (isValid) {
-      el.addEventListener('pointerenter', soundHover)
-      el.addEventListener('click', () => playCard(rank, suit))
+    const isValid   = state.isMyTurn && state.validCards.some(c => c.rank === rank && c.suit === suit)
+    const isPending = pendingCard && pendingCard.rank === rank && pendingCard.suit === suit
+    if (isPending) {
+      const f = field()
+      el.classList.add('lift')
+      place(el, f.cx, f.cy + CH * cfg.confirm.cardY, 0, cfg.confirm.scale)
+    } else {
+      if (state.isMyTurn && !pendingCard) el.classList.add(isValid ? 'valid' : 'invalid')
+      place(el, lay[i][0], lay[i][1], lay[i][2], lay[i][3])
+      if (isValid && !pendingCard) {
+        el.addEventListener('pointerenter', soundHover)
+        el.addEventListener('click', () => enterConfirm(rank, suit))
+      }
     }
     frag.appendChild(el)
   })
   frag.appendChild(plate(s))
+}
+
+// First tap on a valid card → arm confirmation (lift + dim + ✓/✗).
+function enterConfirm(rank, suit) {
+  if (!state.isMyTurn || pendingCard) return
+  if (!state.validCards.some(c => c.rank === rank && c.suit === suit)) return
+  pendingCard = { rank, suit }
+  render()
+}
+function cancelConfirm() {
+  if (!pendingCard) return
+  pendingCard = null
+  render()
+}
+function confirmPlay() {
+  const card = pendingCard
+  pendingCard = null
+  if (card) playCard(card.rank, card.suit)
 }
 
 function playCard(rank, suit) {
@@ -325,6 +358,31 @@ function playCard(rank, suit) {
   state.validCards = []
   render()
   onCardPlay?.(card)
+}
+
+// Confirmation overlay: full-screen dim (tap = cancel) + ✓/✗ boxes flanking
+// the lifted card. Layered purely by z-index (dim 70, lift 80, boxes 90).
+function renderConfirm(frag) {
+  if (!pendingCard || !state.isMyTurn) return
+  const f = field()
+  const dim = document.createElement('div')
+  dim.className = 'g-confirm-dim'
+  dim.addEventListener('click', cancelConfirm)
+  frag.appendChild(dim)
+
+  const by = f.cy + CH * cfg.confirm.boxY, sz = cfg.confirm.boxSize
+  const mkBox = (cls, txt, cx, onClick) => {
+    const b = document.createElement('div')
+    b.className = `g-confirm-box ${cls}`
+    b.textContent = txt
+    b.style.width = b.style.height = sz + 'px'
+    b.style.fontSize = Math.round(sz * 0.5) + 'px'
+    b.style.left = cx + 'px'; b.style.top = by + 'px'
+    b.addEventListener('click', onClick)
+    frag.appendChild(b)
+  }
+  mkBox('no',  '✕', f.cx - CW * cfg.confirm.boxGap, cancelConfirm)
+  mkBox('yes', '✓', f.cx + CW * cfg.confirm.boxGap, confirmPlay)
 }
 
 // Seat name plate: name (ally/foe colour, turn frame), leader star, bid label.
@@ -414,6 +472,7 @@ function renderHUD(frag) {
 // ── Main render — full rebuild from state (juice/persistent nodes later) ─
 export function render() {
   if (!root) return
+  if (pendingCard && !state.isMyTurn) pendingCard = null   // drop stale confirmation
   computeScale()
   const frag = document.createDocumentFragment()
   renderOpponent('north', frag)
@@ -422,5 +481,6 @@ export function render() {
   renderPli(frag)
   renderSouth(frag)
   renderHUD(frag)
+  renderConfirm(frag)
   root.replaceChildren(frag)
 }
