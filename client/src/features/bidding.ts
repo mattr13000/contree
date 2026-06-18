@@ -2,7 +2,7 @@ import { byId } from '../dom.js'
 import { socket } from '../socket.js'
 import { escapeHtml } from '../scoring.js'
 import { initBidUI, hideBidOverlay, applyBidUIState } from '../bid-ui.js'
-import { applyBidState, applyPlayStart } from '../game.js'
+import { applyBidState, applyPlayStart, runAfterDeal } from '../game.js'
 import { slamIn, scheduleHide, flashAnnouncement } from '../announcements.js'
 import { getMyTeam } from '../clientState.js'
 import { SUIT_SYMBOLS } from '../../../shared/constants.js'
@@ -45,9 +45,9 @@ export function initBidding(): void {
     if (data.lastAction) {
       if (bidActionTimer) clearTimeout(bidActionTimer)
       showBidAction(data.lastAction)
-      bidActionTimer = setTimeout(() => applyBidUIState(data, socket.id!, getMyTeam()), BID_ACTION_MS)
+      bidActionTimer = setTimeout(() => runAfterDeal(() => applyBidUIState(data, socket.id!, getMyTeam())), BID_ACTION_MS)
     } else {
-      applyBidUIState(data, socket.id!, getMyTeam())
+      runAfterDeal(() => applyBidUIState(data, socket.id!, getMyTeam()))
     }
   })
 
