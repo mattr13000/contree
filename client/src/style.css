@@ -34,13 +34,13 @@ body {
   position: absolute;
   top: 0; left: 0;
   transform-origin: center;
-  background-repeat: no-repeat;
-  border-radius: 6px;
   filter: drop-shadow(0 5px 9px rgba(0, 0, 0, 0.45));
   will-change: transform;
 }
-.g-card.valid   { cursor: pointer; outline: 3px solid #daa520; outline-offset: -3px; border-radius: 6px; }
-.g-card.invalid { filter: brightness(0.5) drop-shadow(0 4px 8px rgba(0, 0, 0, 0.45)); }
+.g-card svg { width: 100%; height: 100%; display: block; overflow: visible; }
+.g-card.valid   { cursor: pointer; }
+.g-card.valid svg .frame { stroke: #daa520; stroke-width: 5; }
+.g-card.invalid { filter: brightness(0.55) drop-shadow(0 4px 8px rgba(0, 0, 0, 0.45)); }
 .g-card.lift    { z-index: 80; cursor: default; }
 
 /* ── Tap-to-confirm card play (lifted card + dim + ✓/✗) ─────────── */
@@ -505,7 +505,9 @@ button.hidden { display: none; }
   position: fixed;
   top: 50%;
   left: 50%;
-  z-index: 100;
+  /* Above #contree-announcement (z 100): if both fire in quick succession the
+     surcontré must land on top, not behind the earlier contré. */
+  z-index: 110;
   pointer-events: none;
   white-space: nowrap;
   font-family: Impact, 'Arial Black', sans-serif;

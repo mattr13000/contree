@@ -1,81 +1,66 @@
+import { gsap } from 'gsap'
 import { soundHover, soundPlay } from './soundManager.js'
+import {
+  CARD_BASE_WIDTH, CARD_BASE_HEIGHT, VIEWPORT, LAYOUT_PRESETS, PLI, ANIMATION, CARD_COLORS,
+} from './uiConfig.js'
+import type { LayoutPreset, PresetName } from './uiConfig.js'
 import type {
   Rank, Suit, Card, Team, Position, Contree, BidValue, BidInfo, LastAction, TeamScores,
   DealtPayload, BidStatePayload, PlayStartPayload, PlayStatePayload, TrickWonPayload,
 } from '../../shared/types.js'
 
 // ════════════════════════════════════════════════════════════════════
-// DOM renderer (Étape 3). Cards are absolutely-positioned <div>s laid out
-// from the proto presets; render() does a full rebuild from `state` on every
-// event. Public API (state, apply*, initGame, setOnCardPlay, render) is the
-// contract consumed by client/src/features/*.ts. Tap-to-confirm (passe 2) and
-// the restyled bid modal (passe 3) are in. Still to come: GSAP juice with
-// persistent card nodes and the mobile-landscape layout.
+// DOM renderer (Étape 3 — juice pass). Cards are SVG <div>s that PERSIST
+// across events so GSAP can tween them: deal cascade, fly-to-pli on play,
+// hand re-fan, trick sweep to the winner, animated tap-to-confirm lift.
+// Plates + HUD + confirm overlay are cheap "chrome" rebuilt each update.
+// Public API (state, apply*, initGame, setOnCardPlay, render) is the
+// contract consumed by client/src/features/*.ts. Still to come: particles
+// (canvas overlay) + the mobile-landscape layout.
 // ════════════════════════════════════════════════════════════════════
 
-const CARD_BASE_W = 96    // card box base size (proto units; sprite art stretched to fill)
-const CARD_BASE_H = 134
-
-// Sprite-sheet cell coords (native 88×124 px grid) per rank — the 8 Contrée ranks.
-const SPRITE: Record<Rank, { col: number; row: number }> = {
-  'A':  { col: 0, row: 0 }, '7':  { col: 1, row: 1 }, '8':  { col: 2, row: 1 },
-  '9':  { col: 3, row: 1 }, '10': { col: 4, row: 1 }, 'J':  { col: 0, row: 2 },
-  'Q':  { col: 1, row: 2 }, 'K':  { col: 2, row: 2 },
-}
 const SUITS: Suit[] = ['Hearts', 'Diamonds', 'Clubs', 'Spades']
 const SUIT_SYMBOLS: Record<Suit, string> = { Hearts: '♥', Diamonds: '♦', Clubs: '♣', Spades: '♠' }
 const isRedSuit = (suit: Suit): boolean => suit === 'Hearts' || suit === 'Diamonds'
 
-// ── Tunable layout presets (baked from proto/game-ui.html) ───────────
-// Desktop + portrait only — landscape phones get the force-portrait overlay.
-interface Preset {
-  page:      { margin: number; maxAspect: number }
-  cardScale: number
-  south:     { bottom: number; step: number; arc: number; fan: number; scale: number }
-  north:     { top: number; step: number; scale: number }
-  side:      { edge: number; step: number; vshift: number; scale: number }
-  pli:       { spread: number; rot: number }
-  plate:     { southY: number; northY: number; sideGap: number; sideY: number }
-  hud:       { bidY: number; contractY: number }
-  confirm:   { cardY: number; scale: number; boxY: number; boxGap: number; boxSize: number }
+// Inline SVG card face (ported from proto/game-ui.html). The corner index is
+// drawn once and mirrored 180° about the centre; `.frame` is restyled to gold
+// when the card div carries `.valid`.
+function cardSVG(rank: Rank | null, suit: Suit | null, faceUp: boolean): string {
+  if (!faceUp || !rank || !suit) return `
+    <svg viewBox="0 0 96 134">
+      <rect class="frame" x="3" y="3" width="90" height="128" rx="11" fill="${CARD_COLORS.backFill}" stroke="${CARD_COLORS.backStroke}" stroke-width="3"/>
+      <rect x="11" y="11" width="74" height="112" rx="7" fill="none" stroke="${CARD_COLORS.backInner}" stroke-width="2" stroke-dasharray="5 4"/>
+      <text x="48" y="80" text-anchor="middle" font-size="30" fill="${CARD_COLORS.backInner}">♣</text>
+    </svg>`
+  const colour = isRedSuit(suit) ? CARD_COLORS.redSuit : CARD_COLORS.blackSuit, pip = SUIT_SYMBOLS[suit]
+  const index = `<g><text x="10" y="27" font-size="21">${rank}</text><text x="11" y="45" font-size="16">${pip}</text></g>`
+  return `
+    <svg viewBox="0 0 96 134">
+      <rect class="frame" x="3" y="3" width="90" height="128" rx="11" fill="${CARD_COLORS.faceFill}" stroke="${CARD_COLORS.faceStroke}" stroke-width="1.5"/>
+      <g fill="${colour}" font-family="Georgia, serif" font-weight="bold">
+        ${index}
+        <g transform="rotate(180 48 67)">${index}</g>
+        <text x="48" y="84" font-size="46" text-anchor="middle">${pip}</text>
+      </g>
+    </svg>`
 }
 
-const PRESETS: Record<'desktop' | 'portrait', Preset> = {
-  desktop: {
-    page:    { margin: 0.098, maxAspect: 1.4 },
-    cardScale: 1.15,
-    south:   { bottom: 0.30, step: 0.59, arc: 90, fan: 22, scale: 1.0 },
-    north:   { top: 0.43, step: 0.45, scale: 1.0 },
-    side:    { edge: 0.44, step: 0.45, vshift: 0.0, scale: 0.95 },
-    pli:     { spread: 0.78, rot: 6 },
-    plate:   { southY: 1.10, northY: 1.16, sideGap: 0.40, sideY: 0.0 },
-    hud:     { bidY: 0.0, contractY: 0.92 },
-    confirm: { cardY: 0.90, scale: 1.30, boxY: 1.89, boxGap: 0.40, boxSize: 58 },
-  },
-  portrait: {
-    page:    { margin: 0.06, maxAspect: 1.4 },
-    cardScale: 1.2,
-    south:   { bottom: 1.0, step: 0.5, arc: 80, fan: 22, scale: 1.1 },
-    north:   { top: -0.45, step: 0.24, scale: 0.9 },
-    side:    { edge: -0.5, step: 0.4, vshift: 0.0, scale: 0.9 },
-    pli:     { spread: 0.62, rot: 6 },
-    plate:   { southY: 1.9, northY: 0.55, sideGap: 0.45, sideY: 0.0 },
-    hud:     { bidY: 0.0, contractY: 1.2 },
-    confirm: { cardY: -0.10, scale: 1.35, boxY: 1.30, boxGap: 1.20, boxSize: 60 },
-  },
-}
-const pickPreset = (): 'desktop' | 'portrait' =>
-  Math.min(window.innerWidth, window.innerHeight) < 600 ? 'portrait' : 'desktop'
+// Active layout preset + current card size in px (recomputed by computeScale).
+// All tunable values live in uiConfig.ts.
+const pickPreset = (): PresetName =>
+  Math.min(window.innerWidth, window.innerHeight) < VIEWPORT.portraitBreakpoint ? 'portrait' : 'desktop'
 
-let cfg: Preset = PRESETS.desktop
-let cardW = CARD_BASE_W   // current card width  in px (scaled per viewport + preset)
-let cardH = CARD_BASE_H   // current card height in px
+let cfg: LayoutPreset = LAYOUT_PRESETS.desktop
+let cardW = CARD_BASE_WIDTH    // current card width  in px (scaled per viewport + preset)
+let cardH = CARD_BASE_HEIGHT   // current card height in px
 
 function computeScale(): void {
-  cfg = PRESETS[pickPreset()]
-  const viewportScale = Math.max(0.5, Math.min(1, Math.min(window.innerWidth, window.innerHeight) / 600))
-  cardW = Math.round(CARD_BASE_W * viewportScale * cfg.cardScale)
-  cardH = Math.round(CARD_BASE_H * viewportScale * cfg.cardScale)
+  cfg = LAYOUT_PRESETS[pickPreset()]
+  const minSide = Math.min(window.innerWidth, window.innerHeight)
+  const viewportScale = Math.max(VIEWPORT.minScale, Math.min(VIEWPORT.maxScale, minSide / VIEWPORT.referenceSide))
+  cardW = Math.round(CARD_BASE_WIDTH * viewportScale * cfg.cardScale)
+  cardH = Math.round(CARD_BASE_HEIGHT * viewportScale * cfg.cardScale)
 }
 
 // Inner playfield, inset by margin and width-capped on wide screens.
@@ -127,18 +112,14 @@ const platePos: Record<Position, () => [number, number]> = {
                  return [handX - cardH * cfg.side.scale * 0.5 - cardW * cfg.plate.sideGap, cy + cardW * cfg.plate.sideY] },
 }
 
-// ── Asset preload (warms the cache so DOM background-images don't flash) ─
-let assetsReady = false
-function loadImg(src: string): Promise<HTMLImageElement> {
-  return new Promise((resolve, reject) => { const img = new Image(); img.onload = () => resolve(img); img.onerror = reject; img.src = src })
-}
-async function loadAssets(): Promise<void> {
-  if (assetsReady) return
-  await Promise.all([
-    loadImg('/Cards/Topdown/Card_Back-88x124.png'),
-    ...SUITS.map(suit => loadImg(`/Cards/Topdown/${suit}-88x124.png`)),
-  ])
-  assetsReady = true
+// Where a card played by `from` lands in the pli (offset from table centre).
+function pliOffset(from: Position): [number, number] {
+  const v = cardH * PLI.verticalOffsetFactor
+  const offsets: Record<Position, [number, number]> = {
+    south: [0, v], north: [0, -v],
+    west:  [-cardW * cfg.pli.spread, 0], east: [cardW * cfg.pli.spread, 0],
+  }
+  return offsets[from]
 }
 
 // ── Game state (consumed by client/src/features/*.ts) ─────────────────
@@ -204,6 +185,14 @@ export function setOnCardPlay(cb: (card: Card) => void): void { onCardPlay = cb 
 // Card chosen but not yet confirmed (tap-to-confirm, anti-misclick).
 let pendingCard: Card | null = null
 
+// ── Persistent visual model ───────────────────────────────────────────
+/** A card element that lives across events so GSAP can tween it.
+ *  rank/suit are null for face-down opponent cards until revealed. */
+interface CardNode { rank: Rank | null; suit: Suit | null; faceUp: boolean; el: HTMLDivElement }
+const handNodes: Record<Position, CardNode[]> = { south: [], west: [], north: [], east: [] }
+let pliNodes: { from: Position; socketId: string; node: CardNode }[] = []
+let chromeNodes: HTMLElement[] = []   // plates / HUD / trick message / confirm overlay (rebuilt each update)
+
 let root: HTMLElement | null = null
 let initialized = false
 
@@ -212,15 +201,17 @@ export async function initGame(rootEl: HTMLElement, mySocketId: string | undefin
   root = rootEl
   state.mySocketId = mySocketId ?? null
   if (!initialized) {
-    await loadAssets()
-    window.addEventListener('resize', render)
+    window.addEventListener('resize', () => render())
     initialized = true
   }
+  computeScale()
   render()
 }
 
 const seatAt = (pos: Position): RenderSeat =>
   state.seats.find(s => s.position === pos) ?? state.seats[0]
+const seatBySocket = (socketId: string): RenderSeat | undefined =>
+  state.seats.find(s => s.socketId === socketId)
 
 // ── Hand sorting ──────────────────────────────────────────────────
 const SUIT_ORDER:       Record<Suit, number> = { Hearts: 0, Spades: 1, Diamonds: 2, Clubs: 3 }
@@ -235,7 +226,72 @@ function sortHand(hand: Card[], trump: Suit | null = null): Card[] {
   })
 }
 
-// ── Apply server events (state logic; render() rebuilds the DOM) ──────
+// ── Card element factory ──────────────────────────────────────────
+function makeCardNode(rank: Rank | null, suit: Suit | null, faceUp: boolean): CardNode {
+  const el = document.createElement('div')
+  el.className = 'g-card'
+  el.style.width = cardW + 'px'; el.style.height = cardH + 'px'
+  el.innerHTML = cardSVG(rank, suit, faceUp)
+  root!.appendChild(el)
+  return { rank, suit, faceUp, el }
+}
+function setNodeFace(node: CardNode, rank: Rank, suit: Suit): void {
+  node.rank = rank; node.suit = suit; node.faceUp = true
+  node.el.innerHTML = cardSVG(rank, suit, true)
+}
+/** Position a card element via GSAP (animate = tween, else snap). */
+function place(el: HTMLElement, centerX: number, centerY: number, rotationDeg: number, scale: number, animate: boolean): void {
+  const props = { x: centerX - cardW / 2, y: centerY - cardH / 2, rotation: rotationDeg, scale }
+  if (animate) gsap.to(el, { ...props, duration: ANIMATION.cardMove.duration, ease: ANIMATION.cardMove.ease })
+  else gsap.set(el, props)
+}
+
+const isValidCard = (card: Card): boolean => state.validCards.some(c => c.rank === card.rank && c.suit === card.suit)
+const findSouthNode = (rank: Rank, suit: Suit): CardNode | undefined =>
+  handNodes.south.find(n => n.rank === rank && n.suit === suit)
+
+// ── Layout (positions all persistent cards, then rebuilds chrome) ─────
+function layoutAll(animate: boolean): void {
+  computeScale()
+  for (const pos of ['north', 'west', 'east', 'south'] as Position[]) {
+    const nodes = handNodes[pos]
+    const layout = layoutHand(pos, nodes.length)
+    nodes.forEach((node, i) => {
+      if (pos === 'south') {
+        node.el.classList.remove('lift')
+        const card = node.rank && node.suit ? { rank: node.rank, suit: node.suit } : null
+        const showValid = state.isMyTurn && !pendingCard && !!card && isValidCard(card)
+        node.el.classList.toggle('valid', showValid)
+        node.el.classList.toggle('invalid', state.isMyTurn && !pendingCard && !showValid)
+        if (pendingCard && card && card.rank === pendingCard.rank && card.suit === pendingCard.suit) return  // lifted below
+      }
+      place(node.el, layout[i][0], layout[i][1], layout[i][2], layout[i][3], animate)
+    })
+  }
+  const area = playfield()
+  pliNodes.forEach(({ from, node }, i) => {
+    const off = pliOffset(from)
+    place(node.el, area.centerX + off[0], area.centerY + off[1], (i - (pliNodes.length - 1) / 2) * cfg.pli.rot, 1, animate)
+  })
+  if (pendingCard) {
+    const node = findSouthNode(pendingCard.rank, pendingCard.suit)
+    if (node) { node.el.classList.add('lift'); place(node.el, area.centerX, area.centerY + cardH * cfg.confirm.cardY, 0, cfg.confirm.scale, animate) }
+  }
+  renderChrome()
+}
+function reflowHand(pos: Position, animate: boolean): void {
+  const layout = layoutHand(pos, handNodes[pos].length)
+  handNodes[pos].forEach((node, i) => place(node.el, layout[i][0], layout[i][1], layout[i][2], layout[i][3], animate))
+}
+
+/** Public full refresh (snap) — used by initGame + window resize. */
+export function render(): void {
+  if (!root) return
+  if (pendingCard && !state.isMyTurn) pendingCard = null   // drop stale confirmation
+  layoutAll(false)
+}
+
+// ── Apply server events ───────────────────────────────────────────
 export function applyDealt(data: DealtPayload): void {
   const myIdx  = data.seats.findIndex(s => s.socketId === state.mySocketId)
   const myTeam = data.seats[myIdx].team
@@ -257,9 +313,37 @@ export function applyDealt(data: DealtPayload): void {
   state.highBidderNickname = null
   state.trickInfo          = null
   state.bidderNickname = state.bidderSocketId
-    ? (state.seats.find(s => s.socketId === state.bidderSocketId)?.nickname ?? null)
+    ? (seatBySocket(state.bidderSocketId)?.nickname ?? null)
     : null
-  render()
+
+  buildHands()
+}
+
+/** (Re)create every persistent card node for a fresh deal, then deal-cascade in. */
+function buildHands(): void {
+  for (const pos of ['south', 'west', 'north', 'east'] as Position[]) {
+    handNodes[pos].forEach(n => n.el.remove())
+    handNodes[pos] = []
+  }
+  pliNodes.forEach(p => p.node.el.remove())
+  pliNodes = []
+
+  handNodes.south = state.myHand.map(({ rank, suit }) => {
+    const node = makeCardNode(rank, suit, true)
+    node.el.addEventListener('pointerenter', () => { if (state.isMyTurn && !pendingCard && isValidCard({ rank, suit })) soundHover() })
+    node.el.addEventListener('click', () => enterConfirm(rank, suit))
+    return node
+  })
+  for (const pos of ['west', 'north', 'east'] as Position[]) {
+    handNodes[pos] = Array.from({ length: seatAt(pos).cardCount }, () => makeCardNode(null, null, false))
+  }
+
+  layoutAll(false)
+  const allEls = [...handNodes.south, ...handNodes.west, ...handNodes.north, ...handNodes.east].map(n => n.el)
+  gsap.from(allEls, {
+    opacity: ANIMATION.deal.fromOpacity, scale: ANIMATION.deal.fromScale,
+    duration: ANIMATION.deal.duration, ease: ANIMATION.deal.ease, stagger: ANIMATION.deal.stagger,
+  })
 }
 
 export function applyBidState(data: BidStatePayload): void {
@@ -267,15 +351,14 @@ export function applyBidState(data: BidStatePayload): void {
     ? { value: data.highBid.value, suit: data.highBid.suit, contree: data.contree }
     : null
   state.highBidderNickname = data.highBid?.bidderNickname ?? null
-  const bidder = state.seats.find(s => s.socketId === data.currentBidderSocketId)
-  state.bidderNickname = bidder?.nickname ?? null
+  state.bidderNickname = seatBySocket(data.currentBidderSocketId)?.nickname ?? null
   state.bidderSocketId = data.currentBidderSocketId
   const action = data.lastAction
   if (action) {
-    const actor = state.seats.find(s => s.socketId === action.socketId)
+    const actor = seatBySocket(action.socketId)
     if (actor) actor.lastBidAction = action
   }
-  render()
+  renderChrome()
 }
 
 export function applyPlayStart(data: PlayStartPayload): void {
@@ -285,7 +368,11 @@ export function applyPlayStart(data: PlayStartPayload): void {
   state.bidderNickname = null
   state.bidderSocketId = null
   state.myHand         = sortHand(state.myHand, data.trump)
-  render()
+  // Reorder south nodes to follow the freshly-sorted hand, then re-fan.
+  handNodes.south = state.myHand
+    .map(c => findSouthNode(c.rank, c.suit))
+    .filter((n): n is CardNode => !!n)
+  layoutAll(true)
 }
 
 /** Accepts both the live `play:state` payload and the session-restore shape
@@ -299,13 +386,6 @@ export function applyPlayState(data: PlayStateInput): void {
   if (data.trump) state.trump = data.trump
   if (data.bid)   state.bid   = data.bid
 
-  const trickGrew = data.trick.length > state.pli.length
-  if (trickGrew) {
-    const lastPlayed = data.trick[data.trick.length - 1]
-    if (lastPlayed.socketId !== state.mySocketId) soundPlay()
-  }
-
-  state.pli          = data.trick.map(({ rank, suit }) => ({ rank, suit }))
   state.isMyTurn     = data.currentPlayerSocketId === state.mySocketId
   state.trickMessage = null
   state.trickInfo    = {
@@ -316,23 +396,33 @@ export function applyPlayState(data: PlayStateInput): void {
   }
   if (!state.isMyTurn) state.validCards = []
 
-  for (const s of state.seats) {
-    if (!s.isMe) {
-      const playedThisTrick = data.trick.some(t => t.socketId === s.socketId)
-      s.cardCount = 8 - data.tricksPlayed - (playedThisTrick ? 1 : 0)
+  for (const seat of state.seats) {
+    if (!seat.isMe) {
+      const playedThisTrick = data.trick.some(t => t.socketId === seat.socketId)
+      seat.cardCount = 8 - data.tricksPlayed - (playedThisTrick ? 1 : 0)
     }
   }
-  render()
+
+  flyMissingTrickCards(data.trick)   // opponents' cards (mine already flew in playCard)
+  state.pli = data.trick.map(({ rank, suit }) => ({ rank, suit }))
+
+  // Keep opponent face-down stacks consistent (covers session restore: past
+  // tricks aren't replayed, so trim each hand down to its true remaining count).
+  for (const seat of state.seats) {
+    if (seat.isMe) continue
+    reconcileOpponentCount(seat.position, seat.cardCount)
+  }
+
+  renderChrome()
 }
 
 export function applyYourTurn(data: { validCards: Card[] }): void {
   state.validCards = data.validCards
-  render()
+  layoutAll(false)   // refresh valid/invalid highlight on the south hand
 }
 
 export function applyTrickWon(data: TrickWonPayload): void {
-  const lastCard = data.trick[data.trick.length - 1]
-  if (lastCard?.socketId !== state.mySocketId) soundPlay()
+  flyMissingTrickCards(data.trick)   // the 4th completing card arrives only here
   state.pli          = data.trick.map(({ rank, suit }) => ({ rank, suit }))
   state.trickMessage = `${data.winnerNickname} remporte le pli`
   if (state.trickInfo) {
@@ -340,110 +430,165 @@ export function applyTrickWon(data: TrickWonPayload): void {
     state.trickInfo.tricksPlayed        = data.tricksPlayed
     state.trickInfo.trickLeaderSocketId = data.winnerSocketId
   }
-  for (const s of state.seats) { if (!s.isMe) s.cardCount = 8 - data.tricksPlayed }
-  render()
+  for (const seat of state.seats) { if (!seat.isMe) seat.cardCount = 8 - data.tricksPlayed }
+  renderChrome()
+  // Let the completed trick read for a beat, then sweep it to the winner.
+  window.setTimeout(() => sweepTrick(data.winnerSocketId), ANIMATION.trickSweepDelayMs)
 }
 
-// ── DOM building helpers ──────────────────────────────────────────
-function makeCardEl(faceUp: boolean, rank?: Rank, suit?: Suit): HTMLDivElement {
-  const el = document.createElement('div')
-  el.className = 'g-card' + (faceUp ? '' : ' back')
-  el.style.width = cardW + 'px'; el.style.height = cardH + 'px'
-  if (faceUp && rank && suit) {
-    const { col, row } = SPRITE[rank]
-    el.style.backgroundImage    = `url(/Cards/Topdown/${suit}-88x124.png)`
-    el.style.backgroundSize     = `${5 * cardW}px ${3 * cardH}px`
-    el.style.backgroundPosition = `-${col * cardW}px -${row * cardH}px`
-  } else {
-    el.style.backgroundImage = `url(/Cards/Topdown/Card_Back-88x124.png)`
-    el.style.backgroundSize  = `${cardW}px ${cardH}px`
-  }
-  return el
-}
-function place(el: HTMLElement, centerX: number, centerY: number, rotationDeg: number, scale: number): void {
-  el.style.transform = `translate(${centerX - cardW / 2}px, ${centerY - cardH / 2}px) rotate(${rotationDeg}deg) scale(${scale})`
-}
-function isTurnSeat(socketId: string): boolean {
-  if (state.trickInfo)      return state.trickInfo.currentPlayerSocketId === socketId
-  if (state.bidderSocketId) return state.bidderSocketId === socketId
-  return false
-}
-
-// Opponent / ally face-down hand (north/west/east) + plate.
-function renderOpponent(pos: Position, frag: DocumentFragment): void {
-  const seat = seatAt(pos)
-  const count = seat.cardCount ?? 8
-  const layout = layoutHand(pos, count)
-  for (let i = 0; i < count; i++) {
-    const cardEl = makeCardEl(false)
-    place(cardEl, layout[i][0], layout[i][1], layout[i][2], layout[i][3])
-    frag.appendChild(cardEl)
-  }
-  frag.appendChild(makePlate(seat))
-}
-
-// South face-up hand + interaction + plate. When a card is pending confirmation
-// it lifts to centre (scaled), the rest stay put under the dim overlay.
-function renderSouth(frag: DocumentFragment): void {
-  const seat = seatAt('south')
-  const count = state.myHand.length
-  const layout = layoutHand('south', count)
-  state.myHand.forEach(({ rank, suit }, i) => {
-    const cardEl = makeCardEl(true, rank, suit)
-    const isValid   = state.isMyTurn && state.validCards.some(c => c.rank === rank && c.suit === suit)
-    const isPending = pendingCard?.rank === rank && pendingCard?.suit === suit
-    if (isPending) {
-      const area = playfield()
-      cardEl.classList.add('lift')
-      place(cardEl, area.centerX, area.centerY + cardH * cfg.confirm.cardY, 0, cfg.confirm.scale)
-    } else {
-      if (state.isMyTurn && !pendingCard) cardEl.classList.add(isValid ? 'valid' : 'invalid')
-      place(cardEl, layout[i][0], layout[i][1], layout[i][2], layout[i][3])
-      if (isValid && !pendingCard) {
-        cardEl.addEventListener('pointerenter', soundHover)
-        cardEl.addEventListener('click', () => enterConfirm(rank, suit))
-      }
-    }
-    frag.appendChild(cardEl)
-  })
-  frag.appendChild(makePlate(seat))
-}
-
-// First tap on a valid card → arm confirmation (lift + dim + ✓/✗).
+// ── Play interaction (tap-to-confirm) ─────────────────────────────────
 function enterConfirm(rank: Rank, suit: Suit): void {
   if (!state.isMyTurn || pendingCard) return
-  if (!state.validCards.some(c => c.rank === rank && c.suit === suit)) return
+  if (!isValidCard({ rank, suit })) return
   pendingCard = { rank, suit }
-  render()
+  layoutAll(true)
 }
 function cancelConfirm(): void {
   if (!pendingCard) return
   pendingCard = null
-  render()
+  layoutAll(true)   // lifted card slides back into the fan
 }
 function confirmPlay(): void {
   const card = pendingCard
   pendingCard = null
   if (card) playCard(card.rank, card.suit)
 }
-
 function playCard(rank: Rank, suit: Suit): void {
   if (!state.isMyTurn) return
-  const idx = state.myHand.findIndex(c => c.rank === rank && c.suit === suit)
-  if (idx < 0) return
-  if (!state.validCards.some(c => c.rank === rank && c.suit === suit)) return
+  const node = findSouthNode(rank, suit)
+  const idx  = state.myHand.findIndex(c => c.rank === rank && c.suit === suit)
+  if (!node || idx < 0 || !isValidCard({ rank, suit })) return
   soundPlay()
-  const card = state.myHand[idx]
   state.myHand.splice(idx, 1)
-  state.isMyTurn = false
+  state.isMyTurn   = false
   state.validCards = []
-  render()
-  onCardPlay?.(card)
+  flyToPli('south', node, state.mySocketId ?? '')
+  renderChrome()
+  onCardPlay?.({ rank, suit })
 }
 
-// Confirmation overlay: full-screen dim (tap = cancel) + ✓/✗ boxes flanking
-// the lifted card. Layered purely by z-index (dim 70, lift 80, boxes 90).
-function renderConfirm(frag: DocumentFragment): void {
+// Move a card from its hand into the pli with a fly tween; reveal opponents.
+function flyToPli(pos: Position, node: CardNode, socketId: string, reveal?: Card): void {
+  const idx = handNodes[pos].indexOf(node)
+  if (idx >= 0) handNodes[pos].splice(idx, 1)
+  if (reveal) setNodeFace(node, reveal.rank, reveal.suit)
+  node.el.classList.remove('valid', 'invalid', 'lift')
+  if (socketId !== state.mySocketId) soundPlay()   // my own card already sounded in playCard
+  pliNodes.push({ from: pos, socketId, node })
+  const area = playfield(), off = pliOffset(pos)
+  place(node.el, area.centerX + off[0], area.centerY + off[1], (pliNodes.length - 1 - 1.5) * cfg.pli.rot, 1, true)
+  if (idx >= 0) reflowHand(pos, true)
+}
+
+// Fly any trick card not yet shown in the pli (e.g. an opponent's card, or the
+// 4th completing card which only arrives via trick:won — never play:state).
+function flyMissingTrickCards(trick: { socketId: string; rank: Rank; suit: Suit }[]): void {
+  for (const played of trick) {
+    if (pliNodes.some(p => p.socketId === played.socketId)) continue
+    const seat = seatBySocket(played.socketId)
+    if (!seat) continue
+    if (seat.isMe) {
+      flyToPli('south', makeCardNode(played.rank, played.suit, true), played.socketId)
+    } else {
+      const handFor = handNodes[seat.position]
+      const node = handFor[handFor.length - 1]
+      if (node) flyToPli(seat.position, node, played.socketId, { rank: played.rank, suit: played.suit })
+      else      flyToPli(seat.position, makeCardNode(played.rank, played.suit, true), played.socketId)
+    }
+  }
+}
+
+// Sweep the 4 pli cards toward the winner's plate, then remove them.
+function sweepTrick(winnerSocketId: string): void {
+  const winner = seatBySocket(winnerSocketId)
+  const [wx, wy] = winner ? platePos[winner.position]() : [playfield().centerX, playfield().centerY]
+  const els = pliNodes.map(p => p.node.el)
+  const swept = pliNodes
+  pliNodes = []
+  if (!els.length) return
+  gsap.to(els, {
+    x: wx - cardW / 2, y: wy - cardH / 2, rotation: winner?.position === 'north' ? 180 : 0,
+    scale: ANIMATION.sweep.toScale, opacity: 0,
+    duration: ANIMATION.sweep.duration, ease: ANIMATION.sweep.ease, stagger: ANIMATION.sweep.stagger,
+    onComplete: () => swept.forEach(p => p.node.el.remove()),
+  })
+}
+
+// Add/remove face-down nodes so an opponent's stack matches its true count.
+function reconcileOpponentCount(pos: Position, target: number): void {
+  const nodes = handNodes[pos]
+  while (nodes.length > target) { const n = nodes.pop(); n?.el.remove() }
+  while (nodes.length < target) { nodes.push(makeCardNode(null, null, false)) }
+  reflowHand(pos, true)
+}
+
+// ── Chrome (plates, HUD, trick message, confirm overlay) — rebuilt each update ─
+function isTurnSeat(socketId: string): boolean {
+  if (state.trickInfo)      return state.trickInfo.currentPlayerSocketId === socketId
+  if (state.bidderSocketId) return state.bidderSocketId === socketId
+  return false
+}
+function escapeText(text: string): string { const d = document.createElement('div'); d.textContent = text ?? ''; return d.innerHTML }
+
+function makePlate(seat: RenderSeat): HTMLDivElement {
+  const el = document.createElement('div')
+  el.className = `g-seat ${seat.isAlly ? 'ally' : 'foe'}${isTurnSeat(seat.socketId) ? ' turn' : ''}`
+  const isLeader = state.trickInfo?.trickLeaderSocketId === seat.socketId
+  let bidLabel = ''
+  if (state.trickInfo === null && seat.lastBidAction) {
+    const action = seat.lastBidAction
+    if (action.type === 'pass')         bidLabel = `<div class="g-bid pass">Passe</div>`
+    else if (action.type === 'contree') bidLabel = `<div class="g-bid contree">Contré</div>`
+    else if (action.type === 'bid')     bidLabel = `<div class="g-bid ${isRedSuit(action.suit) ? 'red' : 'black'}">${action.value} ${SUIT_SYMBOLS[action.suit]}</div>`
+  }
+  el.innerHTML = `<span class="g-star"${isLeader ? '' : ' style="visibility:hidden"'}>★</span><div class="g-name">${escapeText(seat.nickname)}</div>${bidLabel}`
+  const [px, py] = platePos[seat.position]()
+  el.style.left = px + 'px'; el.style.top = py + 'px'
+  return el
+}
+
+function buildHUD(frag: DocumentFragment): void {
+  const area = playfield()
+  if (state.trickInfo === null) {
+    const bid = state.bid
+    const symbol = bid ? SUIT_SYMBOLS[bid.suit] : null
+    const contreeLabel = bid?.contree === 'surcontree' ? ' SURCONTRÉ' : bid?.contree === 'contree' ? ' CONTRÉ' : ''
+    const valueHTML = bid ? `${bid.value} <span class="${isRedSuit(bid.suit) ? 'red' : ''}">${symbol}</span>${contreeLabel}` : '—'
+    let turnLabel = '', turnClass = ''
+    if (state.bidderSocketId) {
+      const bidder = seatBySocket(state.bidderSocketId)
+      if (bidder) { turnLabel = bidder.isMe ? 'Votre tour !' : `Tour : ${escapeText(bidder.nickname)}`; turnClass = bidder.isMe ? 'me' : '' }
+    }
+    const hudEl = document.createElement('div')
+    hudEl.className = 'g-bidhud'
+    hudEl.innerHTML = `<div class="lbl">ENCHÈRE</div><div class="val">${valueHTML}</div>` +
+      (state.highBidderNickname ? `<div class="holder">${escapeText(state.highBidderNickname)}</div>` : '') +
+      (turnLabel ? `<div class="turn ${turnClass}">${turnLabel}</div>` : '')
+    hudEl.style.left = area.centerX + 'px'; hudEl.style.top = (area.centerY + cardH * cfg.hud.bidY) + 'px'
+    frag.appendChild(hudEl)
+    return
+  }
+  const bid = state.bid
+  if (bid) {
+    const symbol = SUIT_SYMBOLS[bid.suit]
+    const mult = bid.contree === 'surcontree' ? ' <span class="mult">×4</span>'
+               : bid.contree === 'contree'    ? ' <span class="mult">×2</span>' : ''
+    const contractEl = document.createElement('div')
+    contractEl.className = 'g-contract'
+    contractEl.innerHTML = `<span class="lbl">CONTRAT </span><b>${bid.value} <span class="${isRedSuit(bid.suit) ? 'red' : ''}">${symbol}</span></b>${mult}`
+    contractEl.style.left = area.centerX + 'px'; contractEl.style.top = (area.centerY + cardH * cfg.hud.contractY) + 'px'
+    frag.appendChild(contractEl)
+  }
+  const { scores, tricksPlayed } = state.trickInfo
+  const trickHudEl = document.createElement('div')
+  trickHudEl.className = 'g-trickhud'
+  trickHudEl.innerHTML = `<div class="row"><span>Plis</span><span>${tricksPlayed + 1} / 8</span></div>` +
+    `<div class="row"><span class="a">Nous</span><span class="a">${scores.A}</span></div>` +
+    `<div class="row"><span class="b">Eux</span><span class="b">${scores.B}</span></div>`
+  frag.appendChild(trickHudEl)
+}
+
+function buildConfirm(frag: DocumentFragment): void {
   if (!pendingCard || !state.isMyTurn) return
   const area = playfield()
   const dim = document.createElement('div')
@@ -466,102 +611,22 @@ function renderConfirm(frag: DocumentFragment): void {
   makeBox('yes', '✓', area.centerX + cardW * cfg.confirm.boxGap, confirmPlay)
 }
 
-// Seat name plate: name (ally/foe colour, turn frame), leader star, bid label.
-function makePlate(seat: RenderSeat): HTMLDivElement {
-  const el = document.createElement('div')
-  el.className = `g-seat ${seat.isAlly ? 'ally' : 'foe'}${isTurnSeat(seat.socketId) ? ' turn' : ''}`
-  const isLeader = state.trickInfo?.trickLeaderSocketId === seat.socketId
-  let bidLabel = ''
-  if (state.trickInfo === null && seat.lastBidAction) {
-    const action = seat.lastBidAction
-    if (action.type === 'pass')         bidLabel = `<div class="g-bid pass">Passe</div>`
-    else if (action.type === 'contree') bidLabel = `<div class="g-bid contree">Contré</div>`
-    else if (action.type === 'bid')     bidLabel = `<div class="g-bid ${isRedSuit(action.suit) ? 'red' : 'black'}">${action.value} ${SUIT_SYMBOLS[action.suit]}</div>`
-  }
-  el.innerHTML = `<span class="g-star"${isLeader ? '' : ' style="visibility:hidden"'}>★</span><div class="g-name">${escapeText(seat.nickname)}</div>${bidLabel}`
-  const [px, py] = platePos[seat.position]()
-  el.style.left = px + 'px'; el.style.top = py + 'px'
-  return el
-}
-function escapeText(text: string): string { const d = document.createElement('div'); d.textContent = text ?? ''; return d.innerHTML }
-
-// Pli (current trick) fanned around centre by index.
-function renderPli(frag: DocumentFragment): void {
-  const area = playfield()
-  const count = state.pli.length
-  const fanSpread = 0.22 * cardW
-  state.pli.forEach(({ rank, suit }, i) => {
-    const cardEl = makeCardEl(true, rank, suit)
-    const offset = i - (count - 1) / 2
-    place(cardEl, area.centerX + offset * fanSpread, area.centerY, offset * cfg.pli.rot, 1)
-    frag.appendChild(cardEl)
-  })
+function renderChrome(): void {
+  if (!root) return
+  chromeNodes.forEach(n => n.remove())
+  chromeNodes = []
+  const frag = document.createDocumentFragment()
+  for (const pos of ['south', 'west', 'north', 'east'] as Position[]) frag.appendChild(makePlate(seatAt(pos)))
   if (state.trickMessage) {
+    const area = playfield()
     const msgEl = document.createElement('div')
     msgEl.className = 'g-trickmsg'
     msgEl.textContent = state.trickMessage
-    msgEl.style.left = area.centerX + 'px'; msgEl.style.top = (area.centerY + cardH * 0.92) + 'px'
+    msgEl.style.left = area.centerX + 'px'; msgEl.style.top = (area.centerY + cardH * cfg.pli.messageY) + 'px'
     frag.appendChild(msgEl)
   }
-}
-
-// HUD: bid box during bidding; contract encart + trick scores during play.
-function renderHUD(frag: DocumentFragment): void {
-  const area = playfield()
-  if (state.trickInfo === null) {
-    const bid = state.bid
-    const symbol = bid ? SUIT_SYMBOLS[bid.suit] : null
-    const contreeLabel = bid?.contree === 'surcontree' ? ' SURCONTRÉ' : bid?.contree === 'contree' ? ' CONTRÉ' : ''
-    const valueHTML = bid ? `${bid.value} <span class="${isRedSuit(bid.suit) ? 'red' : ''}">${symbol}</span>${contreeLabel}` : '—'
-    let turnLabel = '', turnClass = ''
-    if (state.bidderSocketId) {
-      const bidder = state.seats.find(s => s.socketId === state.bidderSocketId)
-      if (bidder) { turnLabel = bidder.isMe ? 'Votre tour !' : `Tour : ${escapeText(bidder.nickname)}`; turnClass = bidder.isMe ? 'me' : '' }
-    }
-    const hudEl = document.createElement('div')
-    hudEl.className = 'g-bidhud'
-    hudEl.innerHTML = `<div class="lbl">ENCHÈRE</div><div class="val">${valueHTML}</div>` +
-      (state.highBidderNickname ? `<div class="holder">${escapeText(state.highBidderNickname)}</div>` : '') +
-      (turnLabel ? `<div class="turn ${turnClass}">${turnLabel}</div>` : '')
-    hudEl.style.left = area.centerX + 'px'; hudEl.style.top = (area.centerY + cardH * cfg.hud.bidY) + 'px'
-    frag.appendChild(hudEl)
-    return
-  }
-
-  // Play phase — contract encart
-  const bid = state.bid
-  if (bid) {
-    const symbol = SUIT_SYMBOLS[bid.suit]
-    const mult = bid.contree === 'surcontree' ? ' <span class="mult">×4</span>'
-               : bid.contree === 'contree'    ? ' <span class="mult">×2</span>' : ''
-    const contractEl = document.createElement('div')
-    contractEl.className = 'g-contract'
-    contractEl.innerHTML = `<span class="lbl">CONTRAT </span><b>${bid.value} <span class="${isRedSuit(bid.suit) ? 'red' : ''}">${symbol}</span></b>${mult}`
-    contractEl.style.left = area.centerX + 'px'; contractEl.style.top = (area.centerY + cardH * cfg.hud.contractY) + 'px'
-    frag.appendChild(contractEl)
-  }
-  // Trick scores (top-left)
-  const { scores, tricksPlayed } = state.trickInfo
-  const trickHudEl = document.createElement('div')
-  trickHudEl.className = 'g-trickhud'
-  trickHudEl.innerHTML = `<div class="row"><span>Plis</span><span>${tricksPlayed + 1} / 8</span></div>` +
-    `<div class="row"><span class="a">Nous</span><span class="a">${scores.A}</span></div>` +
-    `<div class="row"><span class="b">Eux</span><span class="b">${scores.B}</span></div>`
-  frag.appendChild(trickHudEl)
-}
-
-// ── Main render — full rebuild from state (juice/persistent nodes later) ─
-export function render(): void {
-  if (!root) return
-  if (pendingCard && !state.isMyTurn) pendingCard = null   // drop stale confirmation
-  computeScale()
-  const frag = document.createDocumentFragment()
-  renderOpponent('north', frag)
-  renderOpponent('west', frag)
-  renderOpponent('east', frag)
-  renderPli(frag)
-  renderSouth(frag)
-  renderHUD(frag)
-  renderConfirm(frag)
-  root.replaceChildren(frag)
+  buildHUD(frag)
+  buildConfirm(frag)
+  chromeNodes = Array.from(frag.children) as HTMLElement[]
+  root.appendChild(frag)
 }
