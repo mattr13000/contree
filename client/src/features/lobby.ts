@@ -1,9 +1,14 @@
 import { byId } from '../core/dom.js'
 import { showScreen } from '../core/router.js'
 import { socket } from '../core/socket.js'
+import { resetScores } from '../ui/scoring.js'
 
-/** Lobby buttons (create / browse / back) + the room-list screen. */
+/** Lobby buttons (solo vs bots / create / browse / back) + the room-list screen. */
 export function initLobby(): void {
+  byId('btn-play-bots').addEventListener('click', () => {
+    resetScores()   // fresh score table; no room:joined fires for solo, so reset here
+    socket.emit('room:create-solo')
+  })
   byId('btn-create-room').addEventListener('click', () => socket.emit('room:create'))
   byId('btn-browse-rooms').addEventListener('click', () => {
     socket.emit('lobby:enter')

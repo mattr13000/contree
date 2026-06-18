@@ -1,5 +1,6 @@
 import { players, rooms, games, generateId, getRoomList, roomPayload } from '../state.js'
 import { pushRoomList, leaveRoom, deal } from '../game.js'
+import { makeBots } from '../bot.js'
 import type { Room } from '../../shared/types.js'
 import type { AppServer, AppSocket } from '../io-types.js'
 
@@ -42,6 +43,31 @@ export function registerRoomHandlers(io: AppServer, socket: AppSocket): void {
 
     socket.emit('room:joined', { room: roomPayload(room), isCreator: true })
     pushRoomList()
+  })
+
+  socket.on('room:create-solo', () => {
+    const player = players.get(socket.id)
+    if (!player?.nickname || player.roomId) return
+
+    roomCounter++
+    const room: Room = {
+      id:        generateId(),
+      name:      `Solo de ${player.nickname}`,
+      players:   [socket.id],
+      creatorId: socket.id,
+    }
+    const botIds = makeBots(PLAYER_COUNT - 1, player.nickname)
+    room.players.push(...botIds)
+    rooms.set(room.id, room)
+
+    player.roomId = room.id
+    botIds.forEach(id => { const b = players.get(id); if (b) b.roomId = room.id })
+
+    socket.leave('lobby')
+    socket.join(room.id)
+
+    // No waiting screen: deal() emits game:dealt, which jumps the client to the table.
+    deal(room)
   })
 
   socket.on('room:join', roomId => {

@@ -229,6 +229,7 @@ export interface ClientToServerEvents {
   'lobby:enter': () => void
   'lobby:leave': () => void
   'room:create': () => void
+  'room:create-solo': () => void
   'room:join': (roomId: string) => void
   'room:leave': () => void
   'room:start': () => void
