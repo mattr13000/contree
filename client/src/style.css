@@ -34,13 +34,30 @@ body {
   position: absolute;
   top: 0; left: 0;
   transform-origin: center;
-  background-repeat: no-repeat;
-  border-radius: 6px;
   filter: drop-shadow(0 5px 9px rgba(0, 0, 0, 0.45));
   will-change: transform;
 }
-.g-card.valid   { cursor: pointer; outline: 3px solid #daa520; outline-offset: -3px; border-radius: 6px; }
-.g-card.invalid { filter: brightness(0.5) drop-shadow(0 4px 8px rgba(0, 0, 0, 0.45)); }
+.g-card svg { width: 100%; height: 100%; display: block; overflow: visible; }
+.g-card.valid   { cursor: pointer; }
+.g-card.valid svg .frame { stroke: #daa520; stroke-width: 5; }
+.g-card.invalid { filter: brightness(0.55) drop-shadow(0 4px 8px rgba(0, 0, 0, 0.45)); }
+.g-card.lift    { z-index: 80; cursor: default; }
+
+/* ── Tap-to-confirm card play (lifted card + dim + ✓/✗) ─────────── */
+.g-confirm-dim {
+  position: absolute; inset: 0; z-index: 70; cursor: pointer;
+  background: rgba(0, 0, 0, 0.55);
+}
+.g-confirm-box {
+  position: absolute; transform: translate(-50%, -50%); z-index: 90;
+  display: flex; align-items: center; justify-content: center;
+  border-radius: 16px; border: 2px solid; cursor: pointer; font-weight: bold;
+  box-shadow: 0 5px 16px rgba(0, 0, 0, 0.5);
+  user-select: none; -webkit-tap-highlight-color: transparent;
+}
+.g-confirm-box:active { transform: translate(-50%, -50%) scale(0.92); }
+.g-confirm-box.yes { background: rgba(38, 158, 88, 0.94); border-color: #8affc0; color: #fff; }
+.g-confirm-box.no  { background: rgba(190, 52, 52, 0.94); border-color: #ff9d9d; color: #fff; }
 
 .g-seat {
   position: absolute;
@@ -304,76 +321,90 @@ button.hidden { display: none; }
 }
 #bid-overlay.hidden { display: none; }
 
+/* Bid modal — restyled to match proto/game-ui.html (passe 3). */
 #bid-modal-box {
-  background: rgba(0, 40, 40, 0.95);
-  border: 1px solid rgba(184, 134, 11, 0.6);
-  border-radius: 12px;
-  padding: 14px 18px;
+  width: 300px;
+  max-width: 92vw;
+  background: rgba(16, 30, 24, 0.97);
+  border: 1px solid rgba(218, 165, 32, 0.5);
+  border-radius: 16px;
+  padding: 14px;
   display: flex;
   flex-direction: column;
-  align-items: center;
-  gap: 10px;
-  min-width: 320px;
-  max-width: min(480px, 92vw);
-  box-shadow: 0 4px 24px rgba(0,0,0,0.6);
+  gap: 9px;
+  text-align: center;
+  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.6);
 }
 
 #bid-current-info {
-  font-size: 0.82rem;
-  color: rgba(240, 230, 200, 0.65);
-  letter-spacing: 0.04em;
+  font-size: 12px;
+  letter-spacing: 1.5px;
+  color: #daa520;
   text-transform: uppercase;
 }
 
 .bid-selector {
   display: flex;
   flex-direction: column;
-  align-items: center;
   gap: 8px;
 }
 
 #bid-values {
-  display: flex;
-  gap: 4px;
-  flex-wrap: wrap;
-  justify-content: center;
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  gap: 5px;
 }
 
 #bid-values button {
-  padding: 5px 8px;
-  font-size: 0.82rem;
-  min-width: 40px;
-  background: rgba(255,255,255,0.08);
-  border: 1px solid rgba(255,255,255,0.15);
+  font: 600 13px Georgia, 'Times New Roman', serif;
+  padding: 7px 0;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.22);
+  color: #f0e6c8;
 }
-#bid-values button.selected { background: #b8860b; border-color: #daa520; }
-#bid-values button:disabled { opacity: 0.2; }
-#bid-values button:hover:not(:disabled):not(.selected) { background: rgba(255,255,255,0.15); }
+#bid-values button.selected { background: #daa520; border-color: #daa520; color: #1c1c1c; }
+#bid-values button:disabled { opacity: 0.25; }
+#bid-values button:hover:not(:disabled):not(.selected) { background: rgba(255, 255, 255, 0.14); }
 
 #bid-suits {
-  display: flex;
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
   gap: 6px;
 }
 
 #bid-suits button {
-  padding: 5px 14px;
-  font-size: 1.1rem;
-  background: rgba(255,255,255,0.08);
-  border: 1px solid rgba(255,255,255,0.15);
+  font-size: 21px;
+  padding: 6px 0;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.22);
+  color: #f0e6c8;
 }
-#bid-suits button.selected { background: #b8860b; border-color: #daa520; }
-#bid-suits button:hover:not(:disabled):not(.selected) { background: rgba(255,255,255,0.15); }
+#bid-suits button.selected { background: rgba(218, 165, 32, 0.25); border-color: #daa520; }
+#bid-suits button:hover:not(:disabled):not(.selected) { background: rgba(255, 255, 255, 0.14); }
 #bid-suits button[data-suit="Hearts"],
-#bid-suits button[data-suit="Diamonds"] { color: #f07070; }
+#bid-suits button[data-suit="Diamonds"] { color: #ff7070; }
 
 #bid-actions {
   display: flex;
   gap: 8px;
 }
 
-#bid-actions button { padding: 8px 18px; font-size: 0.9rem; }
-#btn-contree, #btn-surcontree { background: #7a3a8a; }
-#btn-contree:hover:not(:disabled), #btn-surcontree:hover:not(:disabled) { background: #9a4aaa; }
+#bid-actions button {
+  flex: 1;
+  font: 700 14px Georgia, 'Times New Roman', serif;
+  padding: 9px 0;
+  border-radius: 9px;
+  border: 1px solid;
+  color: #fff;
+}
+#btn-pass { background: rgba(190, 52, 52, 0.85); border-color: #ff9d9d; }
+#btn-pass:hover:not(:disabled) { background: rgba(212, 70, 70, 0.95); }
+#btn-bid { background: rgba(38, 158, 88, 0.9); border-color: #8affc0; }
+#btn-bid:hover:not(:disabled) { background: rgba(46, 178, 100, 1); }
+#btn-contree, #btn-surcontree { background: rgba(143, 58, 162, 0.9); border-color: #cf86e0; }
+#btn-contree:hover:not(:disabled), #btn-surcontree:hover:not(:disabled) { background: rgba(163, 74, 184, 1); }
 
 /* ── Contrer / Surcontrer modal ─────────────────────────────── */
 #contrer-modal {
@@ -388,16 +419,16 @@ button.hidden { display: none; }
 #contrer-modal.hidden { display: none; }
 
 #contrer-modal-box {
-  background: rgba(0, 40, 40, 0.97);
-  border: 1px solid rgba(184, 134, 11, 0.7);
-  border-radius: 14px;
+  background: rgba(16, 30, 24, 0.97);
+  border: 1px solid rgba(218, 165, 32, 0.5);
+  border-radius: 16px;
   padding: 28px 36px 24px;
   display: flex;
   flex-direction: column;
   align-items: center;
   gap: 14px;
   min-width: 240px;
-  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.7);
+  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.6);
 }
 
 #contrer-modal-bid {
@@ -420,13 +451,14 @@ button.hidden { display: none; }
 }
 
 #btn-contrer-oui {
-  background: #7a3a8a;
+  background: rgba(38, 158, 88, 0.9);
+  border: 1px solid #8affc0;
   padding: 10px 32px;
   font-size: 1.05rem;
   font-weight: bold;
   min-width: 80px;
 }
-#btn-contrer-oui:hover { background: #9a4aaa; }
+#btn-contrer-oui:hover { background: rgba(46, 178, 100, 1); }
 
 #btn-contrer-non {
   background: rgba(255, 255, 255, 0.08);
@@ -473,7 +505,9 @@ button.hidden { display: none; }
   position: fixed;
   top: 50%;
   left: 50%;
-  z-index: 100;
+  /* Above #contree-announcement (z 100): if both fire in quick succession the
+     surcontré must land on top, not behind the earlier contré. */
+  z-index: 110;
   pointer-events: none;
   white-space: nowrap;
   font-family: Impact, 'Arial Black', sans-serif;
@@ -805,22 +839,9 @@ button.hidden { display: none; }
 
 /* ── Mobile touch target sizing ─────────────────────────────── */
 @media (max-width: 767px) {
-  #bid-values button {
-    min-height: 36px;
-    padding: 6px 8px;
-    min-width: 36px;
-  }
-  #bid-suits button {
-    min-height: 44px;
-    padding: 8px 12px;
-  }
-  #bid-actions button {
-    padding: 10px 16px;
-  }
-  #bid-modal-box {
-    min-width: 0;
-    width: 92vw;
-  }
+  #bid-values button { min-height: 40px; }
+  #bid-suits button  { min-height: 48px; font-size: 23px; }
+  #bid-actions button { padding: 11px 0; }
 }
 
 @keyframes surcontree-slam {
