@@ -21,7 +21,7 @@ function escapeText(text: string): string { const d = document.createElement('di
 
 function makePlate(seat: RenderSeat): HTMLDivElement {
   const el = document.createElement('div')
-  el.className = `g-seat ${seat.isAlly ? 'ally' : 'foe'}${isTurnSeat(seat.socketId) ? ' turn' : ''}`
+  el.className = `g-seat ${seat.position} ${seat.isAlly ? 'ally' : 'foe'}${isTurnSeat(seat.socketId) ? ' turn' : ''}`
   const isLeader = state.trickInfo?.trickLeaderSocketId === seat.socketId
   let bidLabel = ''
   if (state.trickInfo === null && seat.lastBidAction) {
@@ -31,6 +31,7 @@ function makePlate(seat: RenderSeat): HTMLDivElement {
     else if (action.type === 'bid')     bidLabel = `<div class="g-bid ${isRedSuit(action.suit) ? 'red' : 'black'}">${action.value} ${SUIT_SYMBOLS[action.suit]}</div>`
   }
   el.innerHTML = `<span class="g-star"${isLeader ? '' : ' style="visibility:hidden"'}>★</span><div class="g-name">${escapeText(seat.nickname)}</div>${bidLabel}`
+  el.style.fontSize = cfg.seatFontPx + 'px'   // base; ★ + bid label scale off it (em in CSS)
   const [px, py] = platePos[seat.position]()
   el.style.left = px + 'px'; el.style.top = py + 'px'
   return el

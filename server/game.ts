@@ -1,16 +1,34 @@
-import { players, rooms, games, getRoomList, roomPayload } from './state.js'
+import { players, rooms, games, getRoomList, roomPayload, isBot, botTimers, roomBusyUntil } from './state.js'
 import type {
-  Team, Card, Seat, Room,
+  Team, Card, Seat, Room, Rank, Suit, BidValue,
   TeamScores, BidInfo, LastAction, BeloteHolder, TrickState,
 } from '../shared/types.js'
 import type { AppServer } from './io-types.js'
-import { POSITIONS, TEAMS, BELOTE_BONUS, WINNING_SCORE } from '../shared/constants.js'
+import {
+  POSITIONS, TEAMS, BELOTE_BONUS, WINNING_SCORE,
+  GAME_SUITS, BID_VALUES, bidNumeric,
+} from '../shared/constants.js'
 import { computeGameScore } from '../shared/scoring.js'
 import { cardPoints, trickWinnerCard, getValidCards, buildDeck, shuffle } from './rules.js'
 
 // ── io injection ──────────────────────────────────────────────────
 let io!: AppServer
 export function init(_io: AppServer): void { io = _io }
+
+// ── Bot turn hook (injected by bot.ts; no-op for human-only games) ──
+// Called whenever the acting seat may have changed, so the bot driver can
+// schedule a move if the new actor is a bot. Injected to avoid a game↔bot cycle.
+let onTurnChange: (roomId: string) => void = () => {}
+export function setTurnHook(fn: (roomId: string) => void): void { onTurnChange = fn }
+
+const SURCONTREE_DELAY_MS = 1500
+
+// "Table busy" lock durations (ms). Derived from the client deal/annonce GSAP
+// timings in client/src/game/uiConfig.ts (ANIMATION.deal + ANIMATION.annonce) —
+// keep in sync if those change. DEAL covers deck-cascade + "Annonces" banner;
+// PLAY_START covers the bid→play transition (annonce-length floor + safety).
+const DEAL_LOCK_MS       = 6600   // 31·0.09 stagger + 0.8 flight + 2.8s annonce + margin
+const PLAY_START_LOCK_MS = 3300   // 2.8s annonce phase + 500ms safety
 
 // ── Lobby helpers ─────────────────────────────────────────────────
 export function pushRoomList(): void {
@@ -31,6 +49,20 @@ export function leaveRoom(socketId: string): void {
   if (room.players.length === 0) {
     rooms.delete(roomId)
     games.delete(roomId)
+    pushRoomList()
+    return
+  }
+
+  // Solo (vs-bots) room: once only bots remain, tear the whole thing down so
+  // bots never play on by themselves or linger as zombie games.
+  if (room.players.every(isBot)) {
+    room.players.forEach(id => players.delete(id))
+    rooms.delete(roomId)
+    games.delete(roomId)
+    const t = botTimers.get(roomId)
+    if (t) clearTimeout(t)
+    botTimers.delete(roomId)
+    roomBusyUntil.delete(roomId)
     pushRoomList()
     return
   }
@@ -67,6 +99,10 @@ export function deal(room: Room): void {
     bidding: { currentBidderIdx: bidderIdx, passCount: 0, highBid: null, contree: false },
   })
 
+  // Hold bots until the deck-deal + "Annonces" banner finish on the human's screen.
+  // (Covers initial deal, all-pass redeal, and the next-game deal after game-over.)
+  roomBusyUntil.set(room.id, Date.now() + DEAL_LOCK_MS)
+
   seats.forEach(seat => {
     io.to(seat.socketId).emit('game:dealt', {
       seats:               seats.map(({ socketId, nickname, position, team }) =>
@@ -90,6 +126,7 @@ export function emitBidState(roomId: string, lastAction: LastAction | null = nul
     contree:               bidding.contree,
     lastAction,
   })
+  onTurnChange(roomId)
 }
 
 export function bidWon(roomId: string): void {
@@ -119,6 +156,10 @@ export function bidWon(roomId: string): void {
     beloteHolder,
   }
   game.trickState = trickState
+
+  // Hold bots through the bid→play transition so the entameur's first card
+  // doesn't flash onto the felt before the human is visually ready.
+  roomBusyUntil.set(roomId, Date.now() + PLAY_START_LOCK_MS)
 
   io.to(roomId).emit('game:play-start', {
     bid: {
@@ -156,6 +197,7 @@ export function emitPlayState(roomId: string): void {
   }
   const validCards = getValidCards(currentHand, trickState.trick, trump, current.socketId, seats)
   io.to(current.socketId).emit('play:your-turn', { validCards })
+  onTurnChange(roomId)
 }
 
 export function resolveTrick(roomId: string): void {
@@ -230,4 +272,108 @@ export function resolveTrick(roomId: string): void {
   trickState.trickLeaderIdx   = winnerIdx
 
   setTimeout(() => emitPlayState(roomId), 2000)
+}
+
+// ── Player actions ────────────────────────────────────────────────
+// Pure-by-actorId: the socket handlers call these with socket.id, the bot
+// driver calls them with a bot id. All validation lives here (single source).
+
+export function applyBid(roomId: string, actorId: string, { value, suit }: { value: BidValue; suit: Suit }): void {
+  const game = games.get(roomId)
+  if (!game || game.phase !== 'bidding') return
+  const { bidding, seats } = game
+  if (seats[bidding.currentBidderIdx].socketId !== actorId) return
+  if (!BID_VALUES.includes(value)) return
+  if (!GAME_SUITS.includes(suit)) return
+  if (bidding.highBid && bidNumeric(value) <= bidNumeric(bidding.highBid.value)) return
+
+  bidding.highBid   = { value, suit, team: seats[bidding.currentBidderIdx].team, bidderNickname: seats[bidding.currentBidderIdx].nickname }
+  bidding.passCount = 0
+  bidding.contree   = false
+  bidding.currentBidderIdx = (bidding.currentBidderIdx + 1) % 4
+  emitBidState(roomId, { type: 'bid', socketId: actorId, nickname: bidding.highBid.bidderNickname, value, suit })
+}
+
+export function applyPass(roomId: string, actorId: string): void {
+  const game = games.get(roomId)
+  if (!game || game.phase !== 'bidding') return
+  const { bidding, seats } = game
+  if (seats[bidding.currentBidderIdx].socketId !== actorId) return
+  if (bidding.contree === 'surcontree') return
+
+  const passerNickname = seats[bidding.currentBidderIdx].nickname
+  bidding.passCount++
+  bidding.currentBidderIdx = (bidding.currentBidderIdx + 1) % 4
+
+  if (!bidding.highBid && bidding.passCount >= 4) { deal(rooms.get(roomId)!); return }
+  if (bidding.highBid  && bidding.passCount >= 3) { bidWon(roomId); return }
+  emitBidState(roomId, { type: 'pass', socketId: actorId, nickname: passerNickname })
+}
+
+export function applyContree(roomId: string, actorId: string): void {
+  const game = games.get(roomId)
+  if (!game || game.phase !== 'bidding') return
+  const { bidding, seats } = game
+  if (seats[bidding.currentBidderIdx].socketId !== actorId) return
+  if (!bidding.highBid || bidding.contree !== false) return
+  const myTeam = seats.find(s => s.socketId === actorId)?.team
+  if (bidding.highBid.team === myTeam) return
+
+  const contreeurNickname = seats.find(s => s.socketId === actorId)?.nickname ?? '?'
+  bidding.contree   = 'contree'
+  bidding.passCount = 0  // counts as a bid: need a full 3-pass round after contrée
+  bidding.currentBidderIdx = (bidding.currentBidderIdx + 1) % 4
+
+  io.to(roomId).emit('bid:contree-announced')
+  emitBidState(roomId, { type: 'contree', socketId: actorId, nickname: contreeurNickname })
+}
+
+export function applySurcontree(roomId: string, actorId: string): void {
+  const game = games.get(roomId)
+  if (!game || game.phase !== 'bidding') return
+  const { bidding, seats } = game
+  if (seats[bidding.currentBidderIdx].socketId !== actorId) return
+  if (!bidding.highBid || bidding.contree !== 'contree') return
+  const myTeam = seats.find(s => s.socketId === actorId)?.team
+  if (bidding.highBid.team !== myTeam) return
+
+  bidding.contree = 'surcontree'
+  io.to(roomId).emit('bid:surcontree-announced')
+  setTimeout(() => bidWon(roomId), SURCONTREE_DELAY_MS)
+}
+
+export function applyPlay(roomId: string, actorId: string, { rank, suit }: { rank: Rank; suit: Suit }): void {
+  const game = games.get(roomId)
+  if (!game || game.phase !== 'playing' || !game.trickState || !game.trump) return
+  const { trickState, seats, hands, trump } = game
+  if (seats[trickState.currentPlayerIdx].socketId !== actorId) return
+
+  const hand    = hands[actorId]
+  const cardIdx = hand.findIndex(c => c.rank === rank && c.suit === suit)
+  if (cardIdx === -1) return
+
+  const valid = getValidCards(hand, trickState.trick, trump, actorId, seats)
+  if (!valid.some(c => c.rank === rank && c.suit === suit)) return
+
+  const bh = trickState.beloteHolder
+  let beloteAnnounce: 'belote' | 'rebelote' | null = null
+  if (bh?.socketId === actorId && suit === trump && (rank === 'K' || rank === 'Q')) {
+    beloteAnnounce = (bh.played.K || bh.played.Q) ? 'rebelote' : 'belote'
+    bh.played[rank] = true
+  }
+
+  hand.splice(cardIdx, 1)
+  trickState.trick.push({ socketId: actorId, rank, suit })
+
+  if (beloteAnnounce) {
+    const mySeat = seats.find(s => s.socketId === actorId)
+    io.to(roomId).emit('play:belote', { nickname: mySeat?.nickname, type: beloteAnnounce })
+  }
+
+  if (trickState.trick.length < 4) {
+    trickState.currentPlayerIdx = (trickState.currentPlayerIdx + 1) % 4
+    emitPlayState(roomId)
+  } else {
+    resolveTrick(roomId)
+  }
 }

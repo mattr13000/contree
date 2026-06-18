@@ -13,6 +13,7 @@
 //   animations.ts · GSAP juice + deal gate  chrome.ts · plates / HUD / confirm
 // ════════════════════════════════════════════════════════════════════
 
+import { gsap } from 'gsap'
 import { ANIMATION } from './uiConfig.js'
 import { computeScale, cfg, cardH, playfield, layoutHand, pliOffset } from './layout.js'
 import { handNodes, pliNodes, findSouthNode, setRoot, root } from './nodes.js'
@@ -20,6 +21,7 @@ import type { CardNode } from './nodes.js'
 import { makeCardNode, setNodeFace, place } from './cards.js'
 import {
   dealCascade, flyToPli, flyMissingTrickCards, sweepTrick, reconcileOpponentCount,
+  restackSouthHand, restackHands,
 } from './animations.js'
 import { renderChrome } from './chrome.js'
 import { state, ui, seatAt, seatBySocket, isValidCard, sortHand, fireCardPlay } from './state.js'
@@ -48,8 +50,14 @@ export async function initGame(rootEl: HTMLElement, mySocketId: string | undefin
 }
 
 // ── Layout (positions all persistent cards, then rebuilds chrome) ─────
+// A non-animated pass (resize / applyYourTurn refresh / restore snap) must NOT snap a
+// card that's currently mid-tween — e.g. an opponent's card flying into the pli when
+// our own `play:your-turn` arrives the same cycle, which would teleport it to its
+// landing spot. Skip the place() for any node GSAP is actively tweening; its tween is
+// already headed to the right place and will finish on its own.
 function layoutAll(animate: boolean): void {
   computeScale()
+  const settle = (el: HTMLElement): boolean => !animate && gsap.isTweening(el)
   for (const pos of ['north', 'west', 'east', 'south'] as const) {
     const nodes = handNodes[pos]
     const layout = layoutHand(pos, nodes.length)
@@ -63,11 +71,13 @@ function layoutAll(animate: boolean): void {
         node.el.classList.toggle('invalid', state.isMyTurn && !ui.pendingCard && !showValid)
         if (ui.pendingCard && card && card.rank === ui.pendingCard.rank && card.suit === ui.pendingCard.suit) return  // lifted below
       }
+      if (settle(node.el)) return
       place(node.el, layout[i][0], layout[i][1], layout[i][2], layout[i][3], animate)
     })
   }
   const area = playfield()
   pliNodes.forEach(({ from, node }, i) => {
+    if (settle(node.el)) return
     const off = pliOffset(from)
     place(node.el, area.centerX + off[0], area.centerY + off[1], (i - (pliNodes.length - 1) / 2) * cfg.pli.rot, 1, animate)
   })
@@ -86,7 +96,7 @@ export function render(): void {
 }
 
 // ── Apply server events ───────────────────────────────────────────────
-export function applyDealt(data: DealtPayload): void {
+export function applyDealt(data: DealtPayload, animate = true): void {
   const myIdx  = data.seats.findIndex(s => s.socketId === state.mySocketId)
   const myTeam = data.seats[myIdx].team
 
@@ -110,11 +120,12 @@ export function applyDealt(data: DealtPayload): void {
     ? (seatBySocket(state.bidderSocketId)?.nickname ?? null)
     : null
 
-  buildHands()
+  buildHands(animate)
 }
 
-/** (Re)create every persistent card node for a fresh deal, then deal-cascade in. */
-function buildHands(): void {
+/** (Re)create every persistent card node. `animate` → deck-deal cascade (fresh deal);
+ *  else snap straight into place (session restore / F5 — don't replay the whole deal). */
+function buildHands(animate: boolean): void {
   for (const pos of ['south', 'west', 'north', 'east'] as const) {
     handNodes[pos].forEach(n => n.el.remove())
     handNodes[pos] = []
@@ -123,7 +134,8 @@ function buildHands(): void {
   pliNodes.length = 0
 
   handNodes.south = state.myHand.map(({ rank, suit }) => {
-    const node = makeCardNode(rank, suit, false)   // starts face-down on the deck; flips face-up mid-deal
+    // Cascade flips face-up mid-deal, so start face-down; on snap there's no flip → face-up now.
+    const node = makeCardNode(rank, suit, !animate)
     node.el.addEventListener('pointerenter', () => { if (state.isMyTurn && !ui.pendingCard && isValidCard({ rank, suit })) soundHover() })
     node.el.addEventListener('click', () => enterConfirm(rank, suit))
     return node
@@ -132,8 +144,13 @@ function buildHands(): void {
     handNodes[pos] = Array.from({ length: seatAt(pos).cardCount }, () => makeCardNode(null, null, false))
   }
 
-  dealCascade()
-  renderChrome()
+  if (animate) {
+    dealCascade()
+    renderChrome()
+  } else {
+    restackHands()       // cascade normally assigns fan z; on snap we set it ourselves
+    layoutAll(false)     // place all cards instantly (also rebuilds chrome)
+  }
 }
 
 export function applyBidState(data: BidStatePayload): void {
@@ -158,10 +175,12 @@ export function applyPlayStart(data: PlayStartPayload): void {
   state.bidderNickname = null
   state.bidderSocketId = null
   state.myHand         = sortHand(state.myHand, data.trump)
-  // Reorder south nodes to follow the freshly-sorted hand, then re-fan.
+  // Reorder south nodes to follow the freshly-sorted hand, re-stack their z-index
+  // to the new order (else the old deal-time z buries cards), then re-fan.
   handNodes.south = state.myHand
     .map(c => findSouthNode(c.rank, c.suit))
     .filter((n): n is CardNode => !!n)
+  restackSouthHand()
   layoutAll(true)
 }
 

@@ -26,6 +26,21 @@ export function reflowHand(pos: Position, animate: boolean): void {
   handNodes[pos].forEach((node, i) => place(node.el, layout[i][0], layout[i][1], layout[i][2], layout[i][3], animate))
 }
 
+// Per-hand fan z-bases (mirror dealCascade's finalZ: south 32, west 40, north 48,
+// east 56, each +i so a higher index sits on top; all below the pli at PLI_Z_BASE).
+// Re-applied whenever a hand's node order changes outside the deal cascade: after the
+// play-start re-sort (south), and on the session-restore snap-in (all four — no
+// cascade runs to assign z there). Without this the left→right stacking breaks and a
+// card's top-left index hides under its right neighbour.
+const HAND_Z_BASE: Record<Position, number> = { south: 32, west: 40, north: 48, east: 56 }
+export function restackHand(pos: Position): void {
+  handNodes[pos].forEach((node, i) => { node.el.style.zIndex = String(HAND_Z_BASE[pos] + i) })
+}
+export function restackHands(): void {
+  for (const pos of ['south', 'west', 'north', 'east'] as Position[]) restackHand(pos)
+}
+export const restackSouthHand = (): void => restackHand('south')
+
 // ── Deal-animation gate ───────────────────────────────────────────────
 // The bid UI must stay hidden until the deal + "Annonces" banner finish.
 // game:dealt is async (`await initGame`), so the initial bid:state can fire

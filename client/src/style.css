@@ -84,15 +84,21 @@ body {
   display: flex; flex-direction: column; align-items: center; gap: 2px;
   pointer-events: none; white-space: nowrap; z-index: 30;
 }
+/* Side plates are EDGE-anchored at platePos (which sits a padding past the hand's
+   inner edge) so the name only ever grows toward centre — a long name can never
+   reach back over the hand. West pins its left edge; east pins its right edge. */
+.g-seat.west { transform: translate(0, -50%);     align-items: flex-start; }
+.g-seat.east { transform: translate(-100%, -50%); align-items: flex-end; }
+/* Plate font-size is set inline per preset (uiConfig seatFontPx); children use em. */
 .g-seat .g-name {
-  font-weight: bold; font-size: 15px; padding: 3px 10px; border-radius: 7px;
+  font-weight: bold; font-size: 1em; padding: 0.2em 0.66em; border-radius: 7px;
   text-shadow: 0 1px 3px #000; line-height: 1.1;
 }
 .g-seat.ally .g-name { color: #6ab0ff; }
 .g-seat.foe  .g-name { color: #ff7070; }
 .g-seat.turn .g-name { box-shadow: 0 0 0 2px #daa520, 0 0 14px rgba(218, 165, 32, 0.6); }
-.g-seat .g-star { color: #ffd700; font-size: 12px; line-height: 1; text-shadow: 0 1px 2px #000; height: 12px; }
-.g-seat .g-bid  { font-size: 13px; font-weight: bold; text-shadow: 0 1px 3px #000; line-height: 1; }
+.g-seat .g-star { color: #ffd700; font-size: 0.7em; line-height: 1; text-shadow: 0 1px 2px #000; height: 0.8em; }
+.g-seat .g-bid  { font-size: 0.8em; font-weight: bold; text-shadow: 0 1px 3px #000; line-height: 1; }
 .g-bid.pass    { color: rgba(195, 195, 195, 0.85); }
 .g-bid.contree { color: #cf86e0; }
 .g-bid.red     { color: #ff7070; }
@@ -495,9 +501,11 @@ button.hidden { display: none; }
 }
 
 /* ── Bid action announcement (bid / pass) ────────────────────── */
+/* Sits above centre so it pops clear of the persistent .g-bidhud ENCHÈRE box
+   (which is dead-centre) instead of overlapping it. */
 #bid-action-announcement {
   position: fixed;
-  top: 50%;
+  top: 34%;
   left: 50%;
   z-index: 50;
   pointer-events: none;

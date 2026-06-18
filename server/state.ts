@@ -6,6 +6,15 @@ export const rooms    = new Map<string, Room>()
 export const games    = new Map<string, GameState>()
 export const sessions = new Map<string, Session>()
 
+// ── Bot bookkeeping ─────────────────────────────────────────────────
+/** One pending bot-move timer per room (cleared/reset on every reschedule). */
+export const botTimers     = new Map<string, ReturnType<typeof setTimeout>>()
+/** "Table is animating a transition until this ts" — paces bots past UI animations. */
+export const roomBusyUntil = new Map<string, number>()
+
+/** Virtual (server-driven) players carry a `bot:` id prefix — no real socket. */
+export function isBot(id: string): boolean { return id.startsWith('bot:') }
+
 export function generateId(): string { return randomUUID() }
 
 export function migrateSocketId(oldId: string, newId: string): void {

@@ -1,3 +1,15 @@
+____ actual stuff to fix ____
+
+bidding phase : overlap of where bid is at and announcement floating text, need to fix
+
+adapt font size to viewport, minding west and east (name must not be on top of hand)
+
+first card of a pli played by a bot : unusual delay into animation clipping
+
+hand auto reorganization after bid phase (when J & 9 go above A 10 K Q) don't update their hand Z index properly, making some cards hard to see
+
+_____ dont read those, need review _____
+
 surcotré should block bidding & start the game after it resolves, with a 1.5s pause and a big announcement middle of the screen "surcontré !", kinda like "objection" message from phoenix wright
 
 we tried app on deploy, app crashed at pli 7/8

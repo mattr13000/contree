@@ -1,6 +1,6 @@
 import { players, rooms, games, sessions,
          generateId, migrateSocketId, roomPayload } from '../state.js'
-import { leaveRoom, emitPlayState } from '../game.js'
+import { leaveRoom, emitPlayState, emitBidState } from '../game.js'
 import type { Restored } from '../../shared/types.js'
 import type { AppServer, AppSocket } from '../io-types.js'
 
@@ -71,7 +71,12 @@ export function registerSessionHandlers(_io: AppServer, socket: AppSocket): void
     }
 
     socket.emit('session:ready', { sessionId: incomingId!, restored })
-    if (game?.phase === 'playing' && player.roomId) emitPlayState(player.roomId)
+    // Re-drive the flow so the bot turn hook fires again after reconnect — otherwise
+    // bots stay frozen post-F5 (the grace timer is now cleared, so the pause lifts).
+    if (player.roomId) {
+      if (game?.phase === 'playing')      emitPlayState(player.roomId)
+      else if (game?.phase === 'bidding') emitBidState(player.roomId)
+    }
   })
 
   socket.on('disconnect', () => {

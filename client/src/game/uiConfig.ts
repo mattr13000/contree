@@ -46,8 +46,12 @@ export interface LayoutPreset {
   /** Current trick. spread = side-card horizontal offset ×cw · rot = per-card tilt° ·
    *  messageY = "X remporte le pli" message offset ×ch below centre. */
   pli:       { spread: number; rot: number; messageY: number }
-  /** Name plate positions. southY/northY ×ch from edge · sideGap ×cw toward centre · sideY ×cw. */
+  /** Name plate positions. southY/northY ×ch from edge · sideGap ×cw = padding from the
+   *  hand's inner edge to the (edge-anchored) side name · sideY ×cw. */
   plate:     { southY: number; northY: number; sideGap: number; sideY: number }
+  /** Seat name-plate base font in px. The ★ leader marker and the bid label scale
+   *  off it (em-relative in CSS), so this one number sizes the whole plate. */
+  seatFontPx: number
   /** HUD vertical offsets from table centre, ×ch. bidY = bid box · contractY = play-phase encart. */
   hud:       { bidY: number; contractY: number }
   /** Tap-to-confirm. cardY = lift height ×ch · scale · boxY ×ch · boxGap ×cw · boxSize px. */
@@ -64,7 +68,8 @@ export const LAYOUT_PRESETS: Record<PresetName, LayoutPreset> = {
     north:   { top: 0.43, step: 0.45, scale: 1.0 },
     side:    { edge: 0.44, step: 0.45, vshift: 0.0, scale: 0.95 },
     pli:     { spread: 0.78, rot: 6, messageY: 0.95 },
-    plate:   { southY: 1.10, northY: 1.16, sideGap: 0.40, sideY: 0.0 },
+    plate:   { southY: 1.10, northY: 1.16, sideGap: 0.25, sideY: 0.0 },
+    seatFontPx: 30,
     hud:     { bidY: 0.0, contractY: 1.3},
     confirm: { cardY: 0.90, scale: 1.30, boxY: 1.89, boxGap: 0.40, boxSize: 58 },
   },
@@ -75,7 +80,8 @@ export const LAYOUT_PRESETS: Record<PresetName, LayoutPreset> = {
     north:   { top: -0.45, step: 0.24, scale: 0.9 },
     side:    { edge: -0.5, step: 0.4, vshift: 0.0, scale: 0.9 },
     pli:     { spread: 0.62, rot: 6, messageY: 0.92 },
-    plate:   { southY: 1.9, northY: 0.55, sideGap: 0.45, sideY: 0.0 },
+    plate:   { southY: 1.9, northY: 0.55, sideGap: 0.3, sideY: 0.0 },
+    seatFontPx: 15,
     hud:     { bidY: 0.0, contractY: 1.2 },
     confirm: { cardY: -0.10, scale: 1.35, boxY: 1.30, boxGap: 1.20, boxSize: 60 },
   },
