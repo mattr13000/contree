@@ -13,6 +13,7 @@
 //   animations.ts · GSAP juice + deal gate  chrome.ts · plates / HUD / confirm
 // ════════════════════════════════════════════════════════════════════
 
+import { gsap } from 'gsap'
 import { ANIMATION } from './uiConfig.js'
 import { computeScale, cfg, cardH, playfield, layoutHand, pliOffset } from './layout.js'
 import { handNodes, pliNodes, findSouthNode, setRoot, root } from './nodes.js'
@@ -49,8 +50,14 @@ export async function initGame(rootEl: HTMLElement, mySocketId: string | undefin
 }
 
 // ── Layout (positions all persistent cards, then rebuilds chrome) ─────
+// A non-animated pass (resize / applyYourTurn refresh / restore snap) must NOT snap a
+// card that's currently mid-tween — e.g. an opponent's card flying into the pli when
+// our own `play:your-turn` arrives the same cycle, which would teleport it to its
+// landing spot. Skip the place() for any node GSAP is actively tweening; its tween is
+// already headed to the right place and will finish on its own.
 function layoutAll(animate: boolean): void {
   computeScale()
+  const settle = (el: HTMLElement): boolean => !animate && gsap.isTweening(el)
   for (const pos of ['north', 'west', 'east', 'south'] as const) {
     const nodes = handNodes[pos]
     const layout = layoutHand(pos, nodes.length)
@@ -64,11 +71,13 @@ function layoutAll(animate: boolean): void {
         node.el.classList.toggle('invalid', state.isMyTurn && !ui.pendingCard && !showValid)
         if (ui.pendingCard && card && card.rank === ui.pendingCard.rank && card.suit === ui.pendingCard.suit) return  // lifted below
       }
+      if (settle(node.el)) return
       place(node.el, layout[i][0], layout[i][1], layout[i][2], layout[i][3], animate)
     })
   }
   const area = playfield()
   pliNodes.forEach(({ from, node }, i) => {
+    if (settle(node.el)) return
     const off = pliOffset(from)
     place(node.el, area.centerX + off[0], area.centerY + off[1], (i - (pliNodes.length - 1) / 2) * cfg.pli.rot, 1, animate)
   })
