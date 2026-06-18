@@ -91,8 +91,26 @@ export const PLI = {
 export const ANIMATION = {
   /** Generic card move: deal snap-to-place, hand re-fan, fly-to-pli. */
   cardMove: { duration: 0.34, ease: 'power3.out' },
-  /** Deal cascade — each card fades + scales in, staggered. */
-  deal: { duration: 0.3, ease: 'back.out(1.3)', stagger: 0.02, fromOpacity: 0, fromScale: 0.6 },
+  /** Deck deal (tuned in proto/deal-anim.html): every card starts stacked on a
+   *  central deck, then flies one-by-one to its slot. Cards are dealt index-major /
+   *  seat-minor so the four hands fill in parallel. A single deck shadow stands in
+   *  for the 32 stacked card shadows (per-card shadow returns at liftoff).
+   *    deckScale — size of the deck stack (≈ opponent-card scale, the side preset).
+   *    deckOffsetY — deck position ×ch below table centre (0 = dead centre).
+   *    fromRotation — rotation of a card while still on the deck.
+   *    perCardDuration / ease — each card's individual flight.
+   *    stagger — delay (s) between consecutive cards leaving the deck. */
+  deal: { deckScale: 0.95, fromRotation: 0, deckOffsetY: 0, perCardDuration: 0.8, stagger: 0.09, ease: 'back.out(1.3)' },
+  /** South cards only: face-down on the deck, flip to face-up mid-flight (scaleX
+   *  squish + face swap at the pinch). start = fraction of the flight when the flip
+   *  begins; duration = total flip seconds. */
+  flip: { start: 0.2, duration: 0.45, ease: 'power2.inOut' },
+  /** "Annonces" banner shown after the deal, before interactions unlock. Slides in
+   *  from the right to centre, holds, slides out to the left.
+   *    enterFrom / exitTo — start/end x offsets as a fraction of innerWidth
+   *    (positive = right, negative = left). pause* in seconds. */
+  annonce: { pauseBefore: 0.3, enterFrom: 0.8, enterDuration: 1.35, enterEase: 'expo.out',
+             hold: 0.1, exitTo: -0.8, exitDuration: 0.8, exitEase: 'power2.in', pauseAfter: 0.25 },
   /** Trick sweep toward the winner's plate. */
   sweep: { duration: 0.45, ease: 'power2.in', stagger: 0.05, toScale: 0.35 },
   /** Pause after a trick completes before it sweeps away (ms). */

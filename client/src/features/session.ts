@@ -2,7 +2,7 @@ import { byId } from '../dom.js'
 import { showScreen } from '../router.js'
 import { socket } from '../socket.js'
 import { startMusic } from '../soundManager.js'
-import { initGame, applyDealt, applyBidState, applyPlayState } from '../game.js'
+import { initGame, applyDealt, applyBidState, applyPlayState, runAfterDeal } from '../game.js'
 import { applyBidUIState } from '../bid-ui.js'
 import { renderWaiting } from './waiting.js'
 import { getMyTeam, setMyTeam } from '../clientState.js'
@@ -32,7 +32,7 @@ export function initSession(): void {
         applyDealt(restored.dealt)
         if (restored.bidState) {
           applyBidState(restored.bidState)
-          applyBidUIState(restored.bidState, socket.id!, getMyTeam())
+          runAfterDeal(() => applyBidUIState(restored.bidState!, socket.id!, getMyTeam()))
         } else if (restored.playState) {
           applyPlayState(restored.playState)
         }

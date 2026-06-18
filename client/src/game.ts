@@ -258,8 +258,9 @@ function layoutAll(animate: boolean): void {
     const layout = layoutHand(pos, nodes.length)
     nodes.forEach((node, i) => {
       if (pos === 'south') {
-        node.el.classList.remove('lift')
+        node.el.classList.remove('lift', 'no-shadow')
         const card = node.rank && node.suit ? { rank: node.rank, suit: node.suit } : null
+        if (card && !node.faceUp) setNodeFace(node, card.rank, card.suit)   // safety: reveal if a resize cut the deal flip short
         const showValid = state.isMyTurn && !pendingCard && !!card && isValidCard(card)
         node.el.classList.toggle('valid', showValid)
         node.el.classList.toggle('invalid', state.isMyTurn && !pendingCard && !showValid)
@@ -329,7 +330,7 @@ function buildHands(): void {
   pliNodes = []
 
   handNodes.south = state.myHand.map(({ rank, suit }) => {
-    const node = makeCardNode(rank, suit, true)
+    const node = makeCardNode(rank, suit, false)   // starts face-down on the deck; flips face-up mid-deal
     node.el.addEventListener('pointerenter', () => { if (state.isMyTurn && !pendingCard && isValidCard({ rank, suit })) soundHover() })
     node.el.addEventListener('click', () => enterConfirm(rank, suit))
     return node
@@ -338,12 +339,120 @@ function buildHands(): void {
     handNodes[pos] = Array.from({ length: seatAt(pos).cardCount }, () => makeCardNode(null, null, false))
   }
 
-  layoutAll(false)
-  const allEls = [...handNodes.south, ...handNodes.west, ...handNodes.north, ...handNodes.east].map(n => n.el)
-  gsap.from(allEls, {
-    opacity: ANIMATION.deal.fromOpacity, scale: ANIMATION.deal.fromScale,
-    duration: ANIMATION.deal.duration, ease: ANIMATION.deal.ease, stagger: ANIMATION.deal.stagger,
-  })
+  dealCascade()
+  renderChrome()
+}
+
+// ── Deal-animation gate ───────────────────────────────────────────────
+// The bid UI must stay hidden until the deal + "Annonces" banner finish.
+// game:dealt is async (`await initGame`), so the initial bid:state can fire
+// *during* the await, before dealCascade runs — hence lockForDeal() is called
+// synchronously by the game:dealt handler before the await, and dealCascade
+// only ever sets the flag (never clears a callback queued meanwhile).
+let dealTl: gsap.core.Timeline | null = null
+let dealAnimating = false
+let pendingAfterDeal: (() => void) | null = null
+let annonceEl: HTMLDivElement | null = null
+
+/** Lock the bid UI for an imminent deal. Call before any `await` in the deal path. */
+export function lockForDeal(): void { dealAnimating = true; pendingAfterDeal = null }
+/** Run `cb` now if no deal is animating, else once the deal + Annonces finish. */
+export function runAfterDeal(cb: () => void): void {
+  if (dealAnimating) pendingAfterDeal = cb
+  else cb()
+}
+function finishDeal(): void {
+  dealAnimating = false
+  const cb = pendingAfterDeal
+  pendingAfterDeal = null
+  cb?.()
+}
+function getAnnonce(): HTMLDivElement {
+  if (!annonceEl) {
+    annonceEl = document.createElement('div')
+    annonceEl.className = 'g-annonce'
+    annonceEl.textContent = 'Annonces'
+    root!.appendChild(annonceEl)
+  }
+  gsap.set(annonceEl, { xPercent: -50, yPercent: -50, opacity: 0, x: 0 })
+  return annonceEl
+}
+
+/** Deck-deal (tuned in proto/deal-anim.html): stack every freshly-built card on a
+ *  central deck, then fly them out index-major / seat-minor so the four hands fill
+ *  in parallel. One deck shadow replaces the 32 stacked card shadows; south cards
+ *  flip face-up mid-flight; then the "Annonces" banner plays and unlocks the UI. */
+function dealCascade(): void {
+  computeScale()
+  dealAnimating = true
+  const d = ANIMATION.deal, fl = ANIMATION.flip, a = ANIMATION.annonce, area = playfield()
+  const deckX = area.centerX - cardW / 2, deckY = area.centerY + cardH * d.deckOffsetY - cardH / 2
+  const order = ['south', 'west', 'north', 'east'] as Position[]
+  const total = order.reduce((n, pos) => n + handNodes[pos].length, 0)
+
+  // One shadow for the whole stack (a per-card drop-shadow ×32 piles up too dark).
+  root!.querySelector('.g-deck-shadow')?.remove()
+  const deckShadow = document.createElement('div')
+  deckShadow.className = 'g-deck-shadow'
+  deckShadow.style.width = cardW + 'px'; deckShadow.style.height = cardH + 'px'
+  root!.appendChild(deckShadow)
+  gsap.set(deckShadow, { x: deckX, y: deckY, scale: d.deckScale })
+
+  // Stack every card on the deck — no per-card shadow while piled; z-index so the
+  // next card to deal sits on top. Each card's final z (above the deck, DOM order)
+  // is applied at liftoff so it never pops on landing.
+  const layouts: Record<Position, Placement[]> = { south: [], west: [], north: [], east: [] }
+  const finalZ = new Map<CardNode, number>()
+  for (const pos of order) {
+    layouts[pos] = layoutHand(pos, handNodes[pos].length)
+    handNodes[pos].forEach((node, i) => {
+      const dealOrder = i * order.length + order.indexOf(pos)
+      node.el.classList.add('no-shadow')
+      gsap.set(node.el, { x: deckX, y: deckY, rotation: d.fromRotation, scale: d.deckScale, zIndex: total - dealOrder })
+      finalZ.set(node, total + order.indexOf(pos) * 8 + i)
+    })
+  }
+
+  dealTl?.kill()
+  const tl = gsap.timeline({ onComplete: finishDeal })
+  dealTl = tl
+  const maxLen = Math.max(...order.map(pos => handNodes[pos].length))
+  let k = 0
+  for (let i = 0; i < maxLen; i++) {
+    for (const pos of order) {
+      const node = handNodes[pos][i]
+      if (!node) continue
+      const [x, y, rot, scale] = layouts[pos][i], at = k * d.stagger
+      const liftoff = (): void => { node.el.classList.remove('no-shadow'); node.el.style.zIndex = String(finalZ.get(node)) }
+      if (pos === 'south' && node.rank && node.suit) {
+        // Travel drives scaleY (size); the flip drives scaleX independently so the
+        // card squishes edge-on, swaps to its face at the pinch, then opens back out.
+        const half = fl.duration / 2, flipAt = at + fl.start * d.perCardDuration
+        const rank = node.rank, suit = node.suit
+        tl.to(node.el, { x: x - cardW / 2, y: y - cardH / 2, rotation: rot, scaleY: scale,
+                         duration: d.perCardDuration, ease: d.ease, onStart: liftoff }, at)
+        tl.to(node.el, { scaleX: 0,     duration: half, ease: fl.ease, onComplete: () => setNodeFace(node, rank, suit) }, flipAt)
+        tl.to(node.el, { scaleX: scale, duration: half, ease: fl.ease }, flipAt + half)
+      } else {
+        tl.to(node.el, { x: x - cardW / 2, y: y - cardH / 2, rotation: rot, scale,
+                         duration: d.perCardDuration, ease: d.ease, onStart: liftoff }, at)
+      }
+      k++
+    }
+  }
+
+  // Deck shadow leaves WITH the last card (fade at its liftoff, not its landing).
+  const lastLiftoff = (k - 1) * d.stagger
+  tl.to(deckShadow, { opacity: 0, duration: 0.25, ease: 'power1.out', onComplete: () => deckShadow.remove() }, lastLiftoff)
+
+  // "Annonces" banner: pause → slide in (right→centre) → hold → slide out (→left) → pause → unlock.
+  const banner = getAnnonce(), winW = window.innerWidth
+  tl.addLabel('dealt')
+  tl.set(banner, { opacity: 1, x: a.enterFrom * winW }, `dealt+=${a.pauseBefore}`)
+  tl.to(banner, { x: 0, duration: a.enterDuration, ease: a.enterEase })
+  tl.to(banner, { x: a.exitTo * winW, duration: a.exitDuration, ease: a.exitEase, delay: a.hold })
+  tl.set(banner, { opacity: 0 })
+  tl.to({}, { duration: a.pauseAfter })
 }
 
 export function applyBidState(data: BidStatePayload): void {

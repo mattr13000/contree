@@ -1,7 +1,7 @@
 import { byId } from '../dom.js'
 import { showScreen } from '../router.js'
 import { socket } from '../socket.js'
-import { initGame, applyDealt, state } from '../game.js'
+import { initGame, applyDealt, lockForDeal, state } from '../game.js'
 import { escapeHtml, computeGameScore, setTeamNames, recordGameResult, updateScoreUI } from '../scoring.js'
 import { getMyTeam, setMyTeam } from '../clientState.js'
 import type { Team } from '../../../shared/types.js'
@@ -9,6 +9,7 @@ import type { Team } from '../../../shared/types.js'
 /** Round lifecycle: deal → game-over modal → session victory. */
 export function initGameFlow(): void {
   socket.on('game:dealt', async data => {
+    lockForDeal()   // hold the bid UI before the await — bid:state may arrive mid-deal
     byId('game-over-modal').classList.add('hidden')
     const myTeam = data.seats.find(s => s.socketId === socket.id)?.team ?? null
     setMyTeam(myTeam)
