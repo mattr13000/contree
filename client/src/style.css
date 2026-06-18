@@ -29,6 +29,8 @@ body {
   inset: 0;
   overflow: hidden;
   background: radial-gradient(ellipse 130% 80% at 50% 42%, #2f6b50 0%, #1c4233 55%, #102a20 100%);
+  /* No text/element selection on the table — double-clicking a card shouldn't blue-highlight it. */
+  user-select: none; -webkit-user-select: none; -webkit-tap-highlight-color: transparent;
 }
 .g-card {
   position: absolute;
@@ -136,6 +138,19 @@ body {
   position: absolute; transform: translateX(-50%); z-index: 25; pointer-events: none;
   font-weight: bold; font-size: 15px; text-shadow: 0 1px 4px #000;
 }
+
+/* Desktop: the name plates were enlarged, so scale the HUD chrome text to match (+50%).
+   Portrait keeps the base sizes above (its plates stay small). */
+#game.preset-desktop .g-bidhud    { padding: 14px 34px; }
+#game.preset-desktop .g-bidhud .lbl    { font-size: 15px; }
+#game.preset-desktop .g-bidhud .val    { font-size: 60px; }
+#game.preset-desktop .g-bidhud .holder { font-size: 18px; }
+#game.preset-desktop .g-bidhud .turn   { font-size: 21px; }
+#game.preset-desktop .g-contract       { font-size: 21px; }
+#game.preset-desktop .g-contract .lbl  { font-size: 14px; }
+#game.preset-desktop .g-contract b     { font-size: 26px; }
+#game.preset-desktop .g-trickhud       { font-size: 25px; }
+#game.preset-desktop .g-trickmsg       { font-size: 23px; }
 
 /* ── Panel ─────────────────────────────────────────────────── */
 .panel {
@@ -255,6 +270,12 @@ button.secondary {
 button.secondary:hover:not(:disabled) { background: rgba(255, 255, 255, 0.08); }
 
 button.hidden { display: none; }
+
+/* Lobby menu: the three actions share one colour; hover lifts a gold glow highlight. */
+#screen-lobby .panel button:hover:not(:disabled) {
+  background: #daa520;
+  box-shadow: 0 0 0 2px rgba(218, 165, 32, 0.55), 0 6px 18px rgba(218, 165, 32, 0.35);
+}
 
 .row {
   display: flex;

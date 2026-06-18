@@ -9,6 +9,7 @@ import { SUIT_SYMBOLS, isRedSuit } from './cards.js'
 import { state, seatAt, seatBySocket, ui } from './state.js'
 import type { RenderSeat } from './state.js'
 import { cancelConfirm, confirmPlay } from './index.js'
+import { isDealAnimating } from './animations.js'
 
 let chromeNodes: HTMLElement[] = []   // plates / HUD / trick message / confirm overlay (rebuilt each update)
 
@@ -40,6 +41,9 @@ function makePlate(seat: RenderSeat): HTMLDivElement {
 function buildHUD(frag: DocumentFragment): void {
   const area = playfield()
   if (state.trickInfo === null) {
+    // Hold the ENCHÈRE box until the deck deal + "Annonces" banner finish — it
+    // shouldn't flash over the table while the cards are still flying out.
+    if (isDealAnimating()) return
     const bid = state.bid
     const symbol = bid ? SUIT_SYMBOLS[bid.suit] : null
     const contreeLabel = bid?.contree === 'surcontree' ? ' SURCONTRÉ' : bid?.contree === 'contree' ? ' CONTRÉ' : ''
@@ -66,7 +70,10 @@ function buildHUD(frag: DocumentFragment): void {
     const contractEl = document.createElement('div')
     contractEl.className = 'g-contract'
     contractEl.innerHTML = `<span class="lbl">CONTRAT </span><b>${bid.value} <span class="${isRedSuit(bid.suit) ? 'red' : ''}">${symbol}</span></b>${mult}`
-    contractEl.style.left = area.centerX + 'px'; contractEl.style.top = (area.centerY + cardH * cfg.hud.contractY) + 'px'
+    // Anchor above the south name plate (offset = cfg.hud.contractY ×ch upward) so it
+    // sits consistently relative to "me" instead of drifting on odd viewport ratios.
+    const [sx, sy] = platePos.south()
+    contractEl.style.left = sx + 'px'; contractEl.style.top = (sy - cardH * cfg.hud.contractY) + 'px'
     frag.appendChild(contractEl)
   }
   const { scores, tricksPlayed } = state.trickInfo

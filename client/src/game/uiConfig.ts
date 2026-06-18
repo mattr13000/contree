@@ -52,7 +52,8 @@ export interface LayoutPreset {
   /** Seat name-plate base font in px. The ★ leader marker and the bid label scale
    *  off it (em-relative in CSS), so this one number sizes the whole plate. */
   seatFontPx: number
-  /** HUD vertical offsets from table centre, ×ch. bidY = bid box · contractY = play-phase encart. */
+  /** HUD vertical offsets, ×ch. bidY = bid box offset from table centre ·
+   *  contractY = play-phase contract recap, anchored this far ABOVE the south name plate. */
   hud:       { bidY: number; contractY: number }
   /** Tap-to-confirm. cardY = lift height ×ch · scale · boxY ×ch · boxGap ×cw · boxSize px. */
   confirm:   { cardY: number; scale: number; boxY: number; boxGap: number; boxSize: number }
@@ -70,7 +71,7 @@ export const LAYOUT_PRESETS: Record<PresetName, LayoutPreset> = {
     pli:     { spread: 0.78, rot: 6, messageY: 0.95 },
     plate:   { southY: 1.10, northY: 1.16, sideGap: 0.25, sideY: 0.0 },
     seatFontPx: 30,
-    hud:     { bidY: 0.0, contractY: 1.3},
+    hud:     { bidY: 0.0, contractY: 0.5 },
     confirm: { cardY: 0.90, scale: 1.30, boxY: 1.89, boxGap: 0.40, boxSize: 58 },
   },
   portrait: {
@@ -82,7 +83,7 @@ export const LAYOUT_PRESETS: Record<PresetName, LayoutPreset> = {
     pli:     { spread: 0.62, rot: 6, messageY: 0.92 },
     plate:   { southY: 1.9, northY: 0.55, sideGap: 0.3, sideY: 0.0 },
     seatFontPx: 15,
-    hud:     { bidY: 0.0, contractY: 1.2 },
+    hud:     { bidY: 0.0, contractY: 0.45 },
     confirm: { cardY: -0.10, scale: 1.35, boxY: 1.30, boxGap: 1.20, boxSize: 60 },
   },
 }

@@ -54,6 +54,8 @@ let annonceEl: HTMLDivElement | null = null
 
 /** Lock the bid UI for an imminent deal. Call before any `await` in the deal path. */
 export function lockForDeal(): void { dealAnimating = true; pendingAfterDeal = null }
+/** True while the deck-deal cascade + "Annonces" banner are still playing. */
+export function isDealAnimating(): boolean { return dealAnimating }
 /** Run `cb` now if no deal is animating, else once the deal + Annonces finish. */
 export function runAfterDeal(cb: () => void): void {
   if (dealAnimating) pendingAfterDeal = cb

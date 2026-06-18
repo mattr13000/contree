@@ -15,7 +15,7 @@
 
 import { gsap } from 'gsap'
 import { ANIMATION } from './uiConfig.js'
-import { computeScale, cfg, cardH, playfield, layoutHand, pliOffset } from './layout.js'
+import { computeScale, cfg, cardH, playfield, layoutHand, pliOffset, presetName } from './layout.js'
 import { handNodes, pliNodes, findSouthNode, setRoot, root } from './nodes.js'
 import type { CardNode } from './nodes.js'
 import { makeCardNode, setNodeFace, place } from './cards.js'
@@ -58,6 +58,7 @@ export async function initGame(rootEl: HTMLElement, mySocketId: string | undefin
 // already headed to the right place and will finish on its own.
 function layoutAll(animate: boolean): void {
   computeScale()
+  if (root) { root.classList.toggle('preset-desktop', presetName === 'desktop'); root.classList.toggle('preset-portrait', presetName === 'portrait') }
   const settle = (el: HTMLElement): boolean => !animate && gsap.isTweening(el)
   for (const pos of ['north', 'west', 'east', 'south'] as const) {
     const nodes = handNodes[pos]

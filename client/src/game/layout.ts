@@ -15,11 +15,13 @@ const pickPreset = (): PresetName =>
 // Active preset + current card size in px (recomputed by computeScale). Exported
 // as `let` so other modules see the live values after each computeScale().
 export let cfg: LayoutPreset = LAYOUT_PRESETS.desktop
+export let presetName: PresetName = 'desktop'   // which preset cfg currently points at
 export let cardW = CARD_BASE_WIDTH    // current card width  in px (scaled per viewport + preset)
 export let cardH = CARD_BASE_HEIGHT   // current card height in px
 
 export function computeScale(): void {
-  cfg = LAYOUT_PRESETS[pickPreset()]
+  presetName = pickPreset()
+  cfg = LAYOUT_PRESETS[presetName]
   const minSide = Math.min(window.innerWidth, window.innerHeight)
   const viewportScale = Math.max(VIEWPORT.minScale, Math.min(VIEWPORT.maxScale, minSide / VIEWPORT.referenceSide))
   cardW = Math.round(CARD_BASE_WIDTH * viewportScale * cfg.cardScale)
