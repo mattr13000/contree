@@ -27,9 +27,9 @@
   <div id="screen-lobby" class="screen">
     <div class="panel">
       <h2 id="lobby-greeting"></h2>
+      <button id="btn-create-room">Créer une partie</button>
+      <button id="btn-browse-rooms">Rejoindre une partie</button>
       <button id="btn-play-bots">Jouer contre 3 bots</button>
-      <button id="btn-create-room" class="secondary">Créer une partie</button>
-      <button id="btn-browse-rooms" class="secondary">Rejoindre une partie</button>
     </div>
   </div>
 
@@ -112,8 +112,38 @@
     </div>
   </div>
 
-  <button id="music-btn" title="Couper la musique">♪</button>
-  <button id="mute-btn" title="Couper le son">🔊</button>
+  <button id="settings-btn" title="Réglages">⚙</button>
+  <div id="settings-modal" class="hidden">
+    <div id="settings-box">
+      <h3>Réglages</h3>
+
+      <div class="settings-row">
+        <span class="settings-label">Musique</span>
+        <div class="vol-control">
+          <button class="vol-btn" data-target="music" data-dir="-1">−</button>
+          <span class="vol-value" id="music-vol-value">50%</span>
+          <button class="vol-btn" data-target="music" data-dir="1">+</button>
+        </div>
+      </div>
+
+      <div class="settings-row">
+        <span class="settings-label">Effets sonores</span>
+        <div class="vol-control">
+          <button class="vol-btn" data-target="sfx" data-dir="-1">−</button>
+          <span class="vol-value" id="sfx-vol-value">50%</span>
+          <button class="vol-btn" data-target="sfx" data-dir="1">+</button>
+        </div>
+      </div>
+
+      <div class="settings-row">
+        <span class="settings-label">Confirmer chaque carte</span>
+        <button id="confirm-toggle" class="settings-toggle">Activé</button>
+      </div>
+
+      <button id="settings-surrender" class="settings-danger hidden">Abandonner la partie</button>
+      <button id="settings-close" class="secondary">Fermer</button>
+    </div>
+  </div>
 
   <!-- Force portrait on phones (landscape mobile UI not built yet) -->
   <div id="rotate-notice">

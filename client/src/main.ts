@@ -2,7 +2,7 @@
 // DOM + socket listeners. Keep this file a flat list of what the app is made of.
 import './style.css'
 
-import { initMediaControls } from './features/mediaControls.js'
+import { initSettingsMenu } from './features/settingsMenu.js'
 import { initNickname } from './features/nickname.js'
 import { initLobby } from './features/lobby.js'
 import { initWaiting } from './features/waiting.js'
@@ -12,7 +12,7 @@ import { initGameFlow } from './features/gameFlow.js'
 import { initScoreModal } from './features/scoreModal.js'
 import { initSession } from './features/session.js'
 
-initMediaControls()
+initSettingsMenu()
 initNickname()
 initLobby()
 initWaiting()

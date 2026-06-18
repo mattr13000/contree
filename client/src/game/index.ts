@@ -15,7 +15,7 @@
 
 import { gsap } from 'gsap'
 import { ANIMATION } from './uiConfig.js'
-import { computeScale, cfg, cardH, playfield, layoutHand, pliOffset } from './layout.js'
+import { computeScale, cfg, cardH, playfield, layoutHand, pliOffset, presetName } from './layout.js'
 import { handNodes, pliNodes, findSouthNode, setRoot, root } from './nodes.js'
 import type { CardNode } from './nodes.js'
 import { makeCardNode, setNodeFace, place } from './cards.js'
@@ -26,6 +26,7 @@ import {
 import { renderChrome } from './chrome.js'
 import { state, ui, seatAt, seatBySocket, isValidCard, sortHand, fireCardPlay } from './state.js'
 import { soundHover, soundPlay } from '../audio/soundManager.js'
+import { getConfirmPlay } from '../core/settings.js'
 import type {
   Rank, Suit, Card, BidInfo,
   DealtPayload, BidStatePayload, PlayStartPayload, PlayStatePayload, TrickWonPayload,
@@ -57,6 +58,7 @@ export async function initGame(rootEl: HTMLElement, mySocketId: string | undefin
 // already headed to the right place and will finish on its own.
 function layoutAll(animate: boolean): void {
   computeScale()
+  if (root) { root.classList.toggle('preset-desktop', presetName === 'desktop'); root.classList.toggle('preset-portrait', presetName === 'portrait') }
   const settle = (el: HTMLElement): boolean => !animate && gsap.isTweening(el)
   for (const pos of ['north', 'west', 'east', 'south'] as const) {
     const nodes = handNodes[pos]
@@ -83,7 +85,14 @@ function layoutAll(animate: boolean): void {
   })
   if (ui.pendingCard) {
     const node = findSouthNode(ui.pendingCard.rank, ui.pendingCard.suit)
-    if (node) { node.el.classList.add('lift'); place(node.el, area.centerX, area.centerY + cardH * cfg.confirm.cardY, 0, cfg.confirm.scale, animate) }
+    if (node) {
+      // Keep the golden "valid" frame so the armed card stays visibly lit, and pin its
+      // z-index above the dim + already-played pli cards (the per-card inline z set at
+      // deal/restack time would otherwise bury it under the trick on the playfield).
+      node.el.classList.add('lift', 'valid')
+      node.el.style.zIndex = '80'
+      place(node.el, area.centerX, area.centerY + cardH * cfg.confirm.cardY, 0, cfg.confirm.scale, animate)
+    }
   }
   renderChrome()
 }
@@ -91,7 +100,7 @@ function layoutAll(animate: boolean): void {
 /** Public full refresh (snap) — used by initGame + window resize. */
 export function render(): void {
   if (!root) return
-  if (ui.pendingCard && !state.isMyTurn) ui.pendingCard = null   // drop stale confirmation
+  if (ui.pendingCard && !state.isMyTurn) { ui.pendingCard = null; restackSouthHand() }   // drop stale confirmation + undo its lift z
   layoutAll(false)
 }
 
@@ -250,13 +259,15 @@ export function applyTrickWon(data: TrickWonPayload): void {
 function enterConfirm(rank: Rank, suit: Suit): void {
   if (!state.isMyTurn || ui.pendingCard) return
   if (!isValidCard({ rank, suit })) return
+  if (!getConfirmPlay()) { playCard(rank, suit); return }   // prompt disabled → play straight away
   ui.pendingCard = { rank, suit }
   layoutAll(true)
 }
 export function cancelConfirm(): void {
   if (!ui.pendingCard) return
   ui.pendingCard = null
-  layoutAll(true)   // lifted card slides back into the fan
+  restackSouthHand()   // restore the fan z-order the lift had overridden
+  layoutAll(true)      // lifted card slides back into the fan
 }
 export function confirmPlay(): void {
   const card = ui.pendingCard
