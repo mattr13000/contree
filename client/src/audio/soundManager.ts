@@ -155,13 +155,14 @@ function playDealClip(src: string, vol: number, pan: number, rate: number): void
   }
 }
 
-/** Panned "slide" accent for a packet dealt to the given visual seat. */
-export function soundDealAccent(pos: Position): void {
+/** "Slide" accent for a dealt round. Panned to a seat if given, else centered (whole-table). */
+export function soundDealAccent(pos?: Position): void {
   if (sfxVol <= 0 || DEAL.clips.length === 0) return
   ensureDealAudio()
-  const dist = 1 - DEAL.distance * SEAT_DIST[pos]
+  const dist = pos ? 1 - DEAL.distance * SEAT_DIST[pos] : 1
+  const pan  = pos ? SEAT_PAN[pos] * DEAL.panAmount : 0
   const vol  = DEAL.accentVol * sfxVol * dist * (1 + (Math.random() * 2 - 1) * DEAL.accentJitter)
-  playDealClip(pickDealClip(), vol, SEAT_PAN[pos] * DEAL.panAmount, rndRange(DEAL.rateMin, DEAL.rateMax))
+  playDealClip(pickDealClip(), vol, pan, rndRange(DEAL.rateMin, DEAL.rateMax))
 }
 /** Soft shuffle bed played once at the start of the deal cascade. */
 export function soundDealBed(): void {

@@ -394,10 +394,24 @@ button.hidden { display: none; }
 }
 
 #bid-current-info {
-  font-size: 12px;
   letter-spacing: 1.5px;
   color: #daa520;
   text-transform: uppercase;
+}
+#bid-current-info .bid-current-bid {
+  font-size: 24px;
+  font-weight: bold;
+  line-height: 1.2;
+}
+#bid-current-info .bid-current-bidder {
+  font-size: 15px;
+  margin-top: 2px;
+  color: rgba(240, 230, 200, 0.7);
+}
+#bid-current-info .bid-current-bidder .ally { color: #6ab0ff; font-weight: bold; }
+#bid-current-info .bid-current-bidder .foe  { color: #ff7070; font-weight: bold; }
+#bid-current-info .bid-current-empty {
+  font-size: 12px;
 }
 
 .bid-selector {

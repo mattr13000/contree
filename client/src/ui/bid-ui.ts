@@ -1,4 +1,5 @@
 import { byId } from '../core/dom.js'
+import { escapeHtml } from './scoring.js'
 import { BID_VALUES, SUIT_SYMBOLS as SUIT_LABELS, bidNumeric } from '../../../shared/constants.js'
 import type { Suit, Team, BidValue, BidStatePayload } from '../../../shared/types.js'
 
@@ -41,9 +42,12 @@ function refreshBidUI(): void {
     const sym = SUIT_LABELS[high.suit]
     const ct  = currentBidState?.contree === 'surcontree' ? ' — SURCONTRÉ'
               : currentBidState?.contree === 'contree'    ? ' — CONTRÉ' : ''
-    bidCurrentEl.textContent = `Enchère actuelle : ${high.value} ${sym}${ct}`
+    const teamCls = high.team === myTeam ? 'ally' : 'foe'
+    bidCurrentEl.innerHTML =
+      `<div class="bid-current-bid">${high.value} ${sym}${ct}</div>` +
+      `<div class="bid-current-bidder">par <span class="${teamCls}">${escapeHtml(high.bidderNickname)}</span></div>`
   } else {
-    bidCurrentEl.textContent = 'Aucune enchère pour l\'instant'
+    bidCurrentEl.innerHTML = '<div class="bid-current-empty">Aucune enchère pour l\'instant</div>'
   }
 
   const isContreed = !!(currentBidState?.contree)

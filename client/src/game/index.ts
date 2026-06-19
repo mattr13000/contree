@@ -127,6 +127,7 @@ export function applyDealt(data: DealtPayload, animate = true): void {
   state.highBidderNickname = null
   state.trickInfo          = null
   state.lastTrick          = null
+  state.trickMessage       = null
   state.bidderNickname = state.bidderSocketId
     ? (seatBySocket(state.bidderSocketId)?.nickname ?? null)
     : null
@@ -258,6 +259,12 @@ export function applyTrickWon(data: TrickWonPayload): void {
   renderChrome()
   // Let the completed trick read for a beat, then sweep it to the winner.
   window.setTimeout(() => sweepTrick(data.winnerSocketId), ANIMATION.trickSweepDelayMs)
+  // Auto-hide the message: mid-game the next play:state clears it, but the last trick
+  // has no following play:state, so without this it lingers into the next bidding phase.
+  const msg = state.trickMessage
+  window.setTimeout(() => {
+    if (state.trickMessage === msg) { state.trickMessage = null; renderChrome() }
+  }, ANIMATION.trickMessageHideMs)
 }
 
 // ── Play interaction (tap-to-confirm) ─────────────────────────────────

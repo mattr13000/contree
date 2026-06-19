@@ -125,10 +125,12 @@ export function dealCascade(): void {
   tl.call(soundDealBed, undefined, 0)   // soft shuffle bed under the whole cascade
 
   // Deal in belote packets (3 cards each, then 2, then 3): one packet per player,
-  // packetGap between players, roundGap between rounds. One panned sound per packet.
+  // packetGap between players, roundGap between rounds. One centered accent per round
+  // (not per packet) so the four near-simultaneous slides don't saturate.
   const c: Record<Position, number> = { south: 0, west: 0, north: 0, east: 0 }
   let t = 0, lastLiftoff = 0
   for (const ps of d.packets) {
+    tl.call(() => soundDealAccent(), undefined, t)   // one accent per round
     for (const pos of order) {
       for (let j = 0; j < ps; j++) {
         const i = c[pos]++
@@ -151,7 +153,6 @@ export function dealCascade(): void {
                            duration: d.perCardDuration, ease: d.ease, onStart: liftoff }, at)
         }
       }
-      tl.call(() => soundDealAccent(pos), undefined, t)   // one panned accent per packet
       t += d.packetGap
     }
     t += d.roundGap

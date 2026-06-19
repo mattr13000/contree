@@ -126,6 +126,9 @@ export const ANIMATION = {
   sweep: { duration: 0.45, ease: 'power2.in', stagger: 0.05, toScale: 0.35 },
   /** Pause after a trick completes before it sweeps away (ms). */
   trickSweepDelayMs: 750,
+  /** "X remporte le pli" auto-hides this long after the trick completes (ms) — so the
+   *  last trick's message doesn't linger into the next game's bidding phase. */
+  trickMessageHideMs: 2000,
 }
 
 // ── SVG card colours ──────────────────────────────────────────────────
