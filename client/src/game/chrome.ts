@@ -4,11 +4,11 @@
 // and the tap-to-confirm dim + ✓/✗ boxes.
 
 import { root } from './nodes.js'
-import { cardW, cardH, cfg, playfield, platePos } from './layout.js'
-import { SUIT_SYMBOLS, isRedSuit } from './cards.js'
+import { cardW, cardH, cfg, playfield, platePos, pliOffset } from './layout.js'
+import { SUIT_SYMBOLS, isRedSuit, cardSVG } from './cards.js'
 import { state, seatAt, seatBySocket, ui } from './state.js'
 import type { RenderSeat } from './state.js'
-import { cancelConfirm, confirmPlay } from './index.js'
+import { cancelConfirm, confirmPlay, toggleLastTrick, closeLastTrick } from './index.js'
 import { isDealAnimating } from './animations.js'
 
 let chromeNodes: HTMLElement[] = []   // plates / HUD / trick message / confirm overlay (rebuilt each update)
@@ -62,27 +62,49 @@ function buildHUD(frag: DocumentFragment): void {
     frag.appendChild(hudEl)
     return
   }
+  // Single top-left HUD box: trick count, bid recap, and a "Dernier pli" review
+  // button — so nothing floats over the middle of the table eating play space.
+  const { tricksPlayed } = state.trickInfo
   const bid = state.bid
+  const hud = document.createElement('div')
+  hud.className = 'g-hud'
+  let html = `<div class="g-hud-plis"><span>PLIS</span><b>${tricksPlayed + 1} / 8</b></div>`
   if (bid) {
     const symbol = SUIT_SYMBOLS[bid.suit]
     const mult = bid.contree === 'surcontree' ? ' <span class="mult">×4</span>'
                : bid.contree === 'contree'    ? ' <span class="mult">×2</span>' : ''
-    const contractEl = document.createElement('div')
-    contractEl.className = 'g-contract'
-    contractEl.innerHTML = `<span class="lbl">CONTRAT </span><b>${bid.value} <span class="${isRedSuit(bid.suit) ? 'red' : ''}">${symbol}</span></b>${mult}`
-    // Anchor above the south name plate (offset = cfg.hud.contractY ×ch upward) so it
-    // sits consistently relative to "me" instead of drifting on odd viewport ratios.
-    const [sx, sy] = platePos.south()
-    contractEl.style.left = sx + 'px'; contractEl.style.top = (sy - cardH * cfg.hud.contractY) + 'px'
-    frag.appendChild(contractEl)
+    html += `<div class="g-contract"><span class="lbl">CONTRAT </span><b>${bid.value} <span class="${isRedSuit(bid.suit) ? 'red' : ''}">${symbol}</span></b>${mult}</div>`
   }
-  const { scores, tricksPlayed } = state.trickInfo
-  const trickHudEl = document.createElement('div')
-  trickHudEl.className = 'g-trickhud'
-  trickHudEl.innerHTML = `<div class="row"><span>Plis</span><span>${tricksPlayed + 1} / 8</span></div>` +
-    `<div class="row"><span class="a">Nous</span><span class="a">${scores.A}</span></div>` +
-    `<div class="row"><span class="b">Eux</span><span class="b">${scores.B}</span></div>`
-  frag.appendChild(trickHudEl)
+  hud.innerHTML = html
+  const lastBtn = document.createElement('button')
+  lastBtn.className = 'g-hud-lastpli'
+  lastBtn.textContent = 'Dernier pli'
+  lastBtn.disabled = !state.lastTrick
+  lastBtn.addEventListener('click', toggleLastTrick)
+  hud.appendChild(lastBtn)
+  frag.appendChild(hud)
+}
+
+// "Dernier pli" overlay: dim the table (like the play-confirm) and lay the last
+// completed trick's 4 cards out exactly where they sat on the field. Tap to close.
+function buildLastTrick(frag: DocumentFragment): void {
+  if (!ui.lastTrickOpen || !state.lastTrick) return
+  const area = playfield()
+  const dim = document.createElement('div')
+  dim.className = 'g-confirm-dim'
+  dim.addEventListener('click', closeLastTrick)
+  frag.appendChild(dim)
+  state.lastTrick.forEach((t, i) => {
+    const [ox, oy] = pliOffset(t.from)
+    const el = document.createElement('div')
+    el.className = 'g-card g-lasttrick-card'
+    el.style.width = cardW + 'px'; el.style.height = cardH + 'px'
+    el.innerHTML = cardSVG(t.rank, t.suit, true)
+    el.style.left = (area.centerX + ox) + 'px'
+    el.style.top  = (area.centerY + oy) + 'px'
+    el.style.transform = `translate(-50%, -50%) rotate(${(i - 1.5) * cfg.pli.rot}deg)`
+    frag.appendChild(el)
+  })
 }
 
 function buildConfirm(frag: DocumentFragment): void {
@@ -124,6 +146,7 @@ export function renderChrome(): void {
   }
   buildHUD(frag)
   buildConfirm(frag)
+  buildLastTrick(frag)
   chromeNodes = Array.from(frag.children) as HTMLElement[]
   root.appendChild(frag)
 }

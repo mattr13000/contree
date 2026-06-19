@@ -98,16 +98,20 @@ export const PLI = {
 export const ANIMATION = {
   /** Generic card move: deal snap-to-place, hand re-fan, fly-to-pli. */
   cardMove: { duration: 0.34, ease: 'power3.out' },
-  /** Deck deal (tuned in proto/deal-anim.html): every card starts stacked on a
-   *  central deck, then flies one-by-one to its slot. Cards are dealt index-major /
-   *  seat-minor so the four hands fill in parallel. A single deck shadow stands in
-   *  for the 32 stacked card shadows (per-card shadow returns at liftoff).
+  /** Deck deal (tuned in proto/deal-sound.html): every card starts stacked on a
+   *  central deck, then flies to its slot in **belote packets** — each player gets
+   *  3 cards, then 2, then 3. A single deck shadow stands in for the 32 stacked card
+   *  shadows (per-card shadow returns at liftoff).
    *    deckScale — size of the deck stack (≈ opponent-card scale, the side preset).
    *    deckOffsetY — deck position ×ch below table centre (0 = dead centre).
    *    fromRotation — rotation of a card while still on the deck.
    *    perCardDuration / ease — each card's individual flight.
-   *    stagger — delay (s) between consecutive cards leaving the deck. */
-  deal: { deckScale: 0.95, fromRotation: 0, deckOffsetY: 0, perCardDuration: 0.8, stagger: 0.09, ease: 'back.out(1.3)' },
+   *    packets — packet sizes served to each player in turn (must sum to 8).
+   *    cardStagger — delay (s) between cards of the SAME packet.
+   *    packetGap — delay (s) between successive packets (player → player).
+   *    roundGap — extra pause (s) between packet rounds (3 → 2 → 3). */
+  deal: { deckScale: 0.95, fromRotation: 0, deckOffsetY: 0, perCardDuration: 0.7,
+          packets: [3, 2, 3], cardStagger: 0.04, packetGap: 0.5, roundGap: 0, ease: 'back.out(1.3)' },
   /** South cards only: face-down on the deck, flip to face-up mid-flight (scaleX
    *  squish + face swap at the pinch). start = fraction of the flight when the flip
    *  begins; duration = total flip seconds. */

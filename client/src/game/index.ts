@@ -25,7 +25,7 @@ import {
 } from './animations.js'
 import { renderChrome } from './chrome.js'
 import { state, ui, seatAt, seatBySocket, isValidCard, sortHand, fireCardPlay } from './state.js'
-import { soundHover, soundPlay } from '../audio/soundManager.js'
+import { soundHover, soundCardPlace } from '../audio/soundManager.js'
 import { getConfirmPlay } from '../core/settings.js'
 import type {
   Rank, Suit, Card, BidInfo,
@@ -120,11 +120,13 @@ export function applyDealt(data: DealtPayload, animate = true): void {
   })
 
   ui.pendingCard           = null
+  ui.lastTrickOpen         = false
   state.myHand             = sortHand(data.myHand)
   state.pli                = []
   state.bid                = null
   state.highBidderNickname = null
   state.trickInfo          = null
+  state.lastTrick          = null
   state.bidderNickname = state.bidderSocketId
     ? (seatBySocket(state.bidderSocketId)?.nickname ?? null)
     : null
@@ -206,6 +208,7 @@ export function applyPlayState(data: PlayStateInput): void {
 
   state.isMyTurn     = data.currentPlayerSocketId === state.mySocketId
   state.trickMessage = null
+  ui.lastTrickOpen   = false   // a card moved → close the review overlay so the table is clear
   state.trickInfo    = {
     currentPlayerSocketId: data.currentPlayerSocketId,
     trickLeaderSocketId:   data.trickLeaderSocketId,
@@ -242,6 +245,9 @@ export function applyYourTurn(data: { validCards: Card[] }): void {
 export function applyTrickWon(data: TrickWonPayload): void {
   flyMissingTrickCards(data.trick)   // the 4th completing card arrives only here
   state.pli          = data.trick.map(({ rank, suit }) => ({ rank, suit }))
+  // Remember this completed trick (with each card's seat) for the "Dernier pli" review.
+  state.lastTrick    = data.trick.map(t => ({ from: seatBySocket(t.socketId)?.position ?? 'south', rank: t.rank, suit: t.suit }))
+  ui.lastTrickOpen   = false
   state.trickMessage = `${data.winnerNickname} remporte le pli`
   if (state.trickInfo) {
     state.trickInfo.scores              = data.scores
@@ -274,12 +280,24 @@ export function confirmPlay(): void {
   ui.pendingCard = null
   if (card) playCard(card.rank, card.suit)
 }
+// ── "Dernier pli" review overlay (toggled from the HUD button in chrome.ts) ──
+export function toggleLastTrick(): void {
+  if (!state.lastTrick) return
+  ui.lastTrickOpen = !ui.lastTrickOpen
+  renderChrome()
+}
+export function closeLastTrick(): void {
+  if (!ui.lastTrickOpen) return
+  ui.lastTrickOpen = false
+  renderChrome()
+}
+
 function playCard(rank: Rank, suit: Suit): void {
   if (!state.isMyTurn) return
   const node = findSouthNode(rank, suit)
   const idx  = state.myHand.findIndex(c => c.rank === rank && c.suit === suit)
   if (!node || idx < 0 || !isValidCard({ rank, suit })) return
-  soundPlay()
+  soundCardPlace()
   state.myHand.splice(idx, 1)
   state.isMyTurn   = false
   state.validCards = []

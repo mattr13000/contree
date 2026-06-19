@@ -2,6 +2,7 @@ import { byId } from '../core/dom.js'
 import { showScreen } from '../core/router.js'
 import { socket } from '../core/socket.js'
 import { escapeHtml, resetScores } from '../ui/scoring.js'
+import { hideBidOverlay } from '../ui/bid-ui.js'
 import type { RoomPayload } from '../../../shared/types.js'
 
 /** Render the 4-slot waiting room. Exported because session restore reuses it. */
@@ -41,6 +42,7 @@ export function initWaiting(): void {
   byId('btn-leave-room').addEventListener('click', () => socket.emit('room:leave'))
 
   socket.on('room:left', () => {
+    hideBidOverlay()     // surrendering mid-bid (your turn) leaves the overlay up otherwise
     byId('score-panel').classList.add('hidden')
     byId('score-btn').classList.add('hidden')
     showScreen('screen-lobby')
