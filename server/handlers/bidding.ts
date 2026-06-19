@@ -5,6 +5,7 @@ import type { AppServer, AppSocket } from '../io-types.js'
 /** bid:place / bid:pass / bid:contree / bid:surcontree — thin wrappers over game.ts actions. */
 export function registerBiddingHandlers(_io: AppServer, socket: AppSocket): void {
   socket.on('bid:place', p => {
+    if (!p || typeof p !== 'object') return
     const roomId = players.get(socket.id)?.roomId
     if (roomId) applyBid(roomId, socket.id, p)
   })

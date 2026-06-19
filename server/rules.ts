@@ -1,4 +1,5 @@
 // Pure card-game rules — no io, no state. Deterministic and unit-testable.
+import { randomInt } from 'crypto'
 import type { Rank, Suit, Card, PlayedCard, Seat } from '../shared/types.js'
 import {
   RANKS, GAME_SUITS, TRUMP_RANK_ORDER, REGULAR_RANK_ORDER,
@@ -53,9 +54,11 @@ export function buildDeck(): Card[] {
 }
 
 export function shuffle<T>(arr: T[]): T[] {
+  // Crypto-secure Fisher–Yates: knowing the deck order wins the game, so the
+  // shuffle must not be predictable. randomInt(n) draws an unbiased int in [0, n).
   const a = [...arr]
   for (let i = a.length - 1; i > 0; i--) {
-    const j = Math.floor(Math.random() * (i + 1));
+    const j = randomInt(i + 1);
     [a[i], a[j]] = [a[j], a[i]]
   }
   return a
