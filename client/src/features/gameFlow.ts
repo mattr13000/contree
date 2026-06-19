@@ -2,6 +2,7 @@ import { byId } from '../core/dom.js'
 import { showScreen } from '../core/router.js'
 import { socket } from '../core/socket.js'
 import { initGame, applyDealt, applyTurnTimer, lockForDeal, state } from '../game/index.js'
+import { hideBidOverlay } from '../ui/bid-ui.js'
 import { escapeHtml, computeGameScore, setTeamNames, recordGameResult, updateScoreUI } from '../ui/scoring.js'
 import { getMyTeam, setMyTeam } from '../core/clientState.js'
 import type { Team } from '../../../shared/types.js'
@@ -10,6 +11,7 @@ import type { Team } from '../../../shared/types.js'
 export function initGameFlow(): void {
   socket.on('game:dealt', async data => {
     lockForDeal()   // hold the bid UI before the await — bid:state may arrive mid-deal
+    hideBidOverlay()   // all-pass redeal: don't leave a stale bid overlay over the deal
     byId('game-over-modal').classList.add('hidden')
     const myTeam = data.seats.find(s => s.socketId === socket.id)?.team ?? null
     setMyTeam(myTeam)

@@ -1,7 +1,7 @@
 import { byId } from '../core/dom.js'
 import { showScreen } from '../core/router.js'
 import { socket } from '../core/socket.js'
-import { resetScores } from '../ui/scoring.js'
+import { escapeHtml, resetScores } from '../ui/scoring.js'
 
 /** Lobby buttons (solo vs bots / create / browse / back) + the room-list screen. */
 export function initLobby(): void {
@@ -27,7 +27,7 @@ export function initLobby(): void {
     }
     container.innerHTML = rooms.map(r => `
       <div class="room-row">
-        <span>${r.name} — ${r.playerCount}/4</span>
+        <span>${escapeHtml(r.name)} — ${r.playerCount}/4</span>
         <button data-id="${r.id}">Rejoindre</button>
       </div>
     `).join('')
