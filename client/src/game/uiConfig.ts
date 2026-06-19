@@ -52,6 +52,11 @@ export interface LayoutPreset {
   /** Seat name-plate base font in px. The ★ leader marker and the bid label scale
    *  off it (em-relative in CSS), so this one number sizes the whole plate. */
   seatFontPx: number
+  /** Seat AVATAR (replaces the name text). size = circle diameter px (fixed per preset,
+   *  like seatFontPx) · ring = team-colour border px · sat/light = HSL of the per-pseudo
+   *  colour fill · spin = "your turn" rotating-arc period (s) · glow = how far that arc
+   *  extends past the rim (px). The name itself shows as a tap/hover tooltip. */
+  avatar:    { size: number; ring: number; sat: number; light: number; spin: number; glow: number }
   /** HUD vertical offsets, ×ch. bidY = bid box offset from table centre ·
    *  contractY = play-phase contract recap, anchored this far ABOVE the south name plate. */
   hud:       { bidY: number; contractY: number }
@@ -69,20 +74,22 @@ export const LAYOUT_PRESETS: Record<PresetName, LayoutPreset> = {
     north:   { top: 0.43, step: 0.45, scale: 1.0 },
     side:    { edge: 0.44, step: 0.45, vshift: 0.0, scale: 0.95 },
     pli:     { spread: 0.78, rot: 6, messageY: 0.95 },
-    plate:   { southY: 1.10, northY: 1.16, sideGap: 0.25, sideY: 0.0 },
+    plate:   { southY: 1.2, northY: 1.24, sideGap: 0.42, sideY: 0.0 },
     seatFontPx: 30,
+    avatar:  { size: 64, ring: 8, sat: 60, light: 30, spin: 2.4, glow: 16 },
     hud:     { bidY: 0.0, contractY: 0.5 },
     confirm: { cardY: 0.90, scale: 1.30, boxY: 1.89, boxGap: 0.40, boxSize: 58 },
   },
   portrait: {
     page:    { margin: 0.06, maxAspect: 1.4 },
     cardScale: 1.2,
-    south:   { bottom: 1.0, step: 0.5, arc: 80, fan: 22, scale: 1.1 },
+    south:   { bottom: 1.0, step: 0.5, arc: 80, fan: 22, scale: 1.05 },
     north:   { top: -0.45, step: 0.24, scale: 0.9 },
     side:    { edge: -0.5, step: 0.4, vshift: 0.0, scale: 0.9 },
     pli:     { spread: 0.62, rot: 6, messageY: 0.92 },
-    plate:   { southY: 1.9, northY: 0.55, sideGap: 0.3, sideY: 0.0 },
+    plate:   { southY: 1.9, northY: 0.55, sideGap: 0.38, sideY: 0.0 },
     seatFontPx: 15,
+    avatar:  { size: 44, ring: 2.5, sat: 60, light: 30, spin: 2.4, glow: 10 },
     hud:     { bidY: 0.0, contractY: 0.45 },
     confirm: { cardY: -0.10, scale: 1.35, boxY: 1.30, boxGap: 1.20, boxSize: 60 },
   },

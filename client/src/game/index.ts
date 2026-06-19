@@ -26,7 +26,7 @@ import {
 import { renderChrome } from './chrome.js'
 import { state, ui, seatAt, seatBySocket, isValidCard, sortHand, fireCardPlay } from './state.js'
 import { soundHover, soundCardPlace } from '../audio/soundManager.js'
-import { getConfirmPlay } from '../core/settings.js'
+import { getConfirmPlay, getShowNames } from '../core/settings.js'
 import type {
   Rank, Suit, Card, BidInfo,
   DealtPayload, BidStatePayload, PlayStartPayload, PlayStatePayload, TrickWonPayload,
@@ -58,7 +58,11 @@ export async function initGame(rootEl: HTMLElement, mySocketId: string | undefin
 // already headed to the right place and will finish on its own.
 function layoutAll(animate: boolean): void {
   computeScale()
-  if (root) { root.classList.toggle('preset-desktop', presetName === 'desktop'); root.classList.toggle('preset-portrait', presetName === 'portrait') }
+  if (root) {
+    root.classList.toggle('preset-desktop', presetName === 'desktop'); root.classList.toggle('preset-portrait', presetName === 'portrait')
+    // Seat names: explicit pref, else hidden by default (avatars only). The gear menu opts in.
+    root.classList.toggle('show-names', getShowNames() ?? false)
+  }
   const settle = (el: HTMLElement): boolean => !animate && gsap.isTweening(el)
   for (const pos of ['north', 'west', 'east', 'south'] as const) {
     const nodes = handNodes[pos]

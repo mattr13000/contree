@@ -5,7 +5,8 @@ import {
   getMusicVolume, setMusicVolume,
   getSfxVolume, setSfxVolume,
 } from '../audio/soundManager.js'
-import { getConfirmPlay, setConfirmPlay } from '../core/settings.js'
+import { getConfirmPlay, setConfirmPlay, getShowNames, setShowNames } from '../core/settings.js'
+import { render } from '../game/index.js'
 
 /** Bottom-right gear → settings menu: music/SFX volume (10% steps), the
  *  tap-to-confirm toggle, and an in-game surrender. Also kicks off the music
@@ -16,14 +17,19 @@ export function initSettingsMenu(): void {
   const closeBtn   = byId<HTMLButtonElement>('settings-close')
   const surrender  = byId<HTMLButtonElement>('settings-surrender')
   const confirmBtn = byId<HTMLButtonElement>('confirm-toggle')
+  const namesBtn   = byId<HTMLButtonElement>('names-toggle')
 
   const pct = (v: number): string => Math.round(v * 100) + '%'
+  // Names default to hidden (avatars only) until the player opts in.
+  const namesShown = (): boolean => getShowNames() ?? false
 
   function refresh(): void {
     byId('music-vol-value').textContent = pct(getMusicVolume())
     byId('sfx-vol-value').textContent   = pct(getSfxVolume())
     confirmBtn.textContent = getConfirmPlay() ? 'Activé' : 'Désactivé'
     confirmBtn.classList.toggle('off', !getConfirmPlay())
+    namesBtn.textContent = namesShown() ? 'Affichés' : 'Masqués'
+    namesBtn.classList.toggle('off', !namesShown())
     // Surrender only makes sense once a game is on screen.
     surrender.classList.toggle('hidden', !byId('game').classList.contains('active'))
     surrender.textContent = 'Abandonner la partie'
@@ -48,6 +54,7 @@ export function initSettingsMenu(): void {
   })
 
   confirmBtn.addEventListener('click', () => { setConfirmPlay(!getConfirmPlay()); refresh() })
+  namesBtn.addEventListener('click', () => { setShowNames(!namesShown()); render(); refresh() })
 
   // Surrender → leave the room (two-step to avoid an accidental forfeit).
   surrender.addEventListener('click', () => {

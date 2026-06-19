@@ -8,10 +8,26 @@ import { cardW, cardH, cfg, playfield, platePos, pliOffset } from './layout.js'
 import { SUIT_SYMBOLS, isRedSuit, cardSVG } from './cards.js'
 import { state, seatAt, seatBySocket, ui } from './state.js'
 import type { RenderSeat } from './state.js'
+import type { Position } from '../../../shared/types.js'
 import { cancelConfirm, confirmPlay, toggleLastTrick, closeLastTrick } from './index.js'
 import { isDealAnimating } from './animations.js'
 
 let chromeNodes: HTMLElement[] = []   // plates / HUD / trick message / confirm overlay (rebuilt each update)
+
+// Per-seat name tooltips revealed by a tap (the global toggle + desktop hover are CSS).
+// Survives chrome rebuilds; a 2s timer clears each one and re-renders.
+const revealed = new Set<Position>()
+const revealTimers = new Map<Position, number>()
+function toggleReveal(pos: Position): void {
+  const t = revealTimers.get(pos)
+  if (t !== undefined) { clearTimeout(t); revealTimers.delete(pos) }
+  if (revealed.has(pos)) revealed.delete(pos)
+  else {
+    revealed.add(pos)
+    revealTimers.set(pos, window.setTimeout(() => { revealed.delete(pos); revealTimers.delete(pos); renderChrome() }, 2000))
+  }
+  renderChrome()
+}
 
 function isTurnSeat(socketId: string): boolean {
   if (state.trickInfo)      return state.trickInfo.currentPlayerSocketId === socketId
@@ -20,9 +36,18 @@ function isTurnSeat(socketId: string): boolean {
 }
 function escapeText(text: string): string { const d = document.createElement('div'); d.textContent = text ?? ''; return d.innerHTML }
 
+// Deterministic colour + initials from the pseudo (bots carry a "🤖 " prefix — strip
+// non-letters so initials are the name's, while the hue still uses the full string).
+function hueFromName(name: string): number { let h = 0; for (const ch of name) h = (h * 31 + ch.charCodeAt(0)) >>> 0; return h % 360 }
+function initials(name: string): string {
+  const parts = name.replace(/[^\p{L}\p{N}]/gu, ' ').trim().split(/\s+/).filter(Boolean)
+  if (parts.length >= 2) return (parts[0][0] + parts[1][0]).toUpperCase()
+  return (parts[0] ?? name).slice(0, 2).toUpperCase()
+}
+
 function makePlate(seat: RenderSeat): HTMLDivElement {
   const el = document.createElement('div')
-  el.className = `g-seat ${seat.position} ${seat.isAlly ? 'ally' : 'foe'}${isTurnSeat(seat.socketId) ? ' turn' : ''}`
+  el.className = `g-seat ${seat.position} ${seat.isAlly ? 'ally' : 'foe'}${isTurnSeat(seat.socketId) ? ' turn' : ''}${revealed.has(seat.position) ? ' revealed' : ''}`
   const isLeader = state.trickInfo?.trickLeaderSocketId === seat.socketId
   let bidLabel = ''
   if (state.trickInfo === null && seat.lastBidAction) {
@@ -31,8 +56,20 @@ function makePlate(seat: RenderSeat): HTMLDivElement {
     else if (action.type === 'contree') bidLabel = `<div class="g-bid contree">Contré</div>`
     else if (action.type === 'bid')     bidLabel = `<div class="g-bid ${isRedSuit(action.suit) ? 'red' : 'black'}">${action.value} ${SUIT_SYMBOLS[action.suit]}</div>`
   }
-  el.innerHTML = `<span class="g-star"${isLeader ? '' : ' style="visibility:hidden"'}>★</span><div class="g-name">${escapeText(seat.nickname)}</div>${bidLabel}`
+  const av = cfg.avatar, fill = `hsl(${hueFromName(seat.nickname)}, ${av.sat}%, ${av.light}%)`
+  el.innerHTML =
+    `<span class="g-star"${isLeader ? '' : ' style="visibility:hidden"'}>★</span>` +
+    `<div class="g-avatar" style="background:${fill}">${escapeText(initials(seat.nickname))}</div>` +
+    bidLabel +
+    `<div class="g-name-tip">${escapeText(seat.nickname)}</div>`
   el.style.fontSize = cfg.seatFontPx + 'px'   // base; ★ + bid label scale off it (em in CSS)
+  const avEl = el.querySelector('.g-avatar') as HTMLElement
+  avEl.style.width = avEl.style.height = av.size + 'px'
+  avEl.style.borderWidth = av.ring + 'px'
+  avEl.style.fontSize = Math.round(av.size * 0.4) + 'px'
+  avEl.style.setProperty('--turn-glow', av.glow + 'px')
+  avEl.style.setProperty('--turn-spin', av.spin + 's')
+  avEl.addEventListener('click', e => { e.stopPropagation(); toggleReveal(seat.position) })
   const [px, py] = platePos[seat.position]()
   el.style.left = px + 'px'; el.style.top = py + 'px'
   return el
