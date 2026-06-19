@@ -25,11 +25,12 @@ import {
 } from './animations.js'
 import { renderChrome } from './chrome.js'
 import { state, ui, seatAt, seatBySocket, isValidCard, sortHand, fireCardPlay } from './state.js'
-import { soundHover, soundPlay } from '../audio/soundManager.js'
-import { getConfirmPlay } from '../core/settings.js'
+import { startTurnTimer, stopTurnTimer, paintTurnTimer } from './turnTimer.js'
+import { soundHover, soundCardPlace } from '../audio/soundManager.js'
+import { getConfirmPlay, getShowNames } from '../core/settings.js'
 import type {
   Rank, Suit, Card, BidInfo,
-  DealtPayload, BidStatePayload, PlayStartPayload, PlayStatePayload, TrickWonPayload,
+  DealtPayload, BidStatePayload, PlayStartPayload, PlayStatePayload, TrickWonPayload, TurnTimerPayload,
 } from '../../../shared/types.js'
 
 // ── Public API re-exports (the contract used by features/*.ts) ────────
@@ -58,7 +59,11 @@ export async function initGame(rootEl: HTMLElement, mySocketId: string | undefin
 // already headed to the right place and will finish on its own.
 function layoutAll(animate: boolean): void {
   computeScale()
-  if (root) { root.classList.toggle('preset-desktop', presetName === 'desktop'); root.classList.toggle('preset-portrait', presetName === 'portrait') }
+  if (root) {
+    root.classList.toggle('preset-desktop', presetName === 'desktop'); root.classList.toggle('preset-portrait', presetName === 'portrait')
+    // Seat names: explicit pref, else hidden by default (avatars only). The gear menu opts in.
+    root.classList.toggle('show-names', getShowNames() ?? false)
+  }
   const settle = (el: HTMLElement): boolean => !animate && gsap.isTweening(el)
   for (const pos of ['north', 'west', 'east', 'south'] as const) {
     const nodes = handNodes[pos]
@@ -120,11 +125,17 @@ export function applyDealt(data: DealtPayload, animate = true): void {
   })
 
   ui.pendingCard           = null
+  ui.lastTrickOpen         = false
+  state.turnDeadline       = null   // a fresh deal: drop any countdown from the last game
+  state.turnDuration       = 0
+  stopTurnTimer()
   state.myHand             = sortHand(data.myHand)
   state.pli                = []
   state.bid                = null
   state.highBidderNickname = null
   state.trickInfo          = null
+  state.lastTrick          = null
+  state.trickMessage       = null
   state.bidderNickname = state.bidderSocketId
     ? (seatBySocket(state.bidderSocketId)?.nickname ?? null)
     : null
@@ -179,6 +190,9 @@ export function applyBidState(data: BidStatePayload): void {
 
 export function applyPlayStart(data: PlayStartPayload): void {
   ui.pendingCard       = null
+  state.turnDeadline   = null   // bid→play transition; the first play turn re-arms it
+  state.turnDuration   = 0
+  stopTurnTimer()
   state.bid            = data.bid
   state.trump          = data.trump
   state.bidderNickname = null
@@ -205,7 +219,16 @@ export function applyPlayState(data: PlayStateInput): void {
   if (data.bid)   state.bid   = data.bid
 
   state.isMyTurn     = data.currentPlayerSocketId === state.mySocketId
+  // If the turn left me while a card was armed (tap-to-confirm) — e.g. the timer expired
+  // and the server auto-played for me — drop the stale pending so it doesn't stay lifted.
+  if (!state.isMyTurn && ui.pendingCard) {
+    const stale = findSouthNode(ui.pendingCard.rank, ui.pendingCard.suit)
+    stale?.el.classList.remove('lift', 'valid', 'invalid')
+    ui.pendingCard = null
+    restackSouthHand()
+  }
   state.trickMessage = null
+  ui.lastTrickOpen   = false   // a card moved → close the review overlay so the table is clear
   state.trickInfo    = {
     currentPlayerSocketId: data.currentPlayerSocketId,
     trickLeaderSocketId:   data.trickLeaderSocketId,
@@ -239,9 +262,29 @@ export function applyYourTurn(data: { validCards: Card[] }): void {
   layoutAll(false)   // refresh valid/invalid highlight on the south hand
 }
 
+/** Server turn-timer tick: start/refresh the countdown on the active seat (payload),
+ *  or clear it (null = bot's turn, actor disconnected, or between turns). */
+export function applyTurnTimer(data: TurnTimerPayload | null): void {
+  if (!data) {
+    state.turnDeadline = null
+    state.turnDuration = 0
+    stopTurnTimer()
+    renderChrome()
+    return
+  }
+  state.turnDeadline = performance.now() + data.remainingMs
+  state.turnDuration = data.durationMs
+  renderChrome()     // (re)build the badge on the current turn seat
+  paintTurnTimer()   // paint frame 0 now (no blank flash), then drive per-frame
+  startTurnTimer()
+}
+
 export function applyTrickWon(data: TrickWonPayload): void {
   flyMissingTrickCards(data.trick)   // the 4th completing card arrives only here
   state.pli          = data.trick.map(({ rank, suit }) => ({ rank, suit }))
+  // Remember this completed trick (with each card's seat) for the "Dernier pli" review.
+  state.lastTrick    = data.trick.map(t => ({ from: seatBySocket(t.socketId)?.position ?? 'south', rank: t.rank, suit: t.suit }))
+  ui.lastTrickOpen   = false
   state.trickMessage = `${data.winnerNickname} remporte le pli`
   if (state.trickInfo) {
     state.trickInfo.scores              = data.scores
@@ -252,6 +295,12 @@ export function applyTrickWon(data: TrickWonPayload): void {
   renderChrome()
   // Let the completed trick read for a beat, then sweep it to the winner.
   window.setTimeout(() => sweepTrick(data.winnerSocketId), ANIMATION.trickSweepDelayMs)
+  // Auto-hide the message: mid-game the next play:state clears it, but the last trick
+  // has no following play:state, so without this it lingers into the next bidding phase.
+  const msg = state.trickMessage
+  window.setTimeout(() => {
+    if (state.trickMessage === msg) { state.trickMessage = null; renderChrome() }
+  }, ANIMATION.trickMessageHideMs)
 }
 
 // ── Play interaction (tap-to-confirm) ─────────────────────────────────
@@ -274,12 +323,24 @@ export function confirmPlay(): void {
   ui.pendingCard = null
   if (card) playCard(card.rank, card.suit)
 }
+// ── "Dernier pli" review overlay (toggled from the HUD button in chrome.ts) ──
+export function toggleLastTrick(): void {
+  if (!state.lastTrick) return
+  ui.lastTrickOpen = !ui.lastTrickOpen
+  renderChrome()
+}
+export function closeLastTrick(): void {
+  if (!ui.lastTrickOpen) return
+  ui.lastTrickOpen = false
+  renderChrome()
+}
+
 function playCard(rank: Rank, suit: Suit): void {
   if (!state.isMyTurn) return
   const node = findSouthNode(rank, suit)
   const idx  = state.myHand.findIndex(c => c.rank === rank && c.suit === suit)
   if (!node || idx < 0 || !isValidCard({ rank, suit })) return
-  soundPlay()
+  soundCardPlace()
   state.myHand.splice(idx, 1)
   state.isMyTurn   = false
   state.validCards = []

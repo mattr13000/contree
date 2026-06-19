@@ -6,9 +6,10 @@
 const STORE_KEY = 'contree-settings'
 
 interface Settings {
-  confirmPlay: boolean   // require a ✓/✗ confirmation before playing a card
+  confirmPlay: boolean         // require a ✓/✗ confirmation before playing a card
+  showNames: boolean | null    // seat name tooltips: true=always / false/null=hidden (avatars only)
 }
-const defaults: Settings = { confirmPlay: true }
+const defaults: Settings = { confirmPlay: true, showNames: null }
 
 let current: Settings = (function load(): Settings {
   try {
@@ -24,3 +25,7 @@ function save(): void {
 
 export function getConfirmPlay(): boolean { return current.confirmPlay }
 export function setConfirmPlay(v: boolean): void { current.confirmPlay = v; save() }
+
+/** null = auto (resolve against the preset at the call site). */
+export function getShowNames(): boolean | null { return current.showNames }
+export function setShowNames(v: boolean): void { current.showNames = v; save() }

@@ -9,11 +9,11 @@ import {
   computeScale, cfg, cardW, cardH, playfield, layoutHand, pliOffset, platePos,
 } from './layout.js'
 import type { Placement } from './layout.js'
-import { handNodes, pliNodes, root } from './nodes.js'
+import { handNodes, pliNodes, root, findSouthNode } from './nodes.js'
 import type { CardNode } from './nodes.js'
 import { makeCardNode, setNodeFace, place } from './cards.js'
 import { state, seatBySocket } from './state.js'
-import { soundPlay } from '../audio/soundManager.js'
+import { soundCardPlace, soundDealAccent, soundDealBed } from '../audio/soundManager.js'
 import type { Position, Rank, Suit, Card } from '../../../shared/types.js'
 
 // Pli cards stack above the hands; each card's z is fixed to its play order at
@@ -98,17 +98,23 @@ export function dealCascade(): void {
   root!.appendChild(deckShadow)
   gsap.set(deckShadow, { x: deckX, y: deckY, scale: d.deckScale })
 
-  // Stack every card on the deck — no per-card shadow while piled; z-index so the
-  // next card to deal sits on top. Each card's final z (above the deck, DOM order)
-  // is applied at liftoff so it never pops on landing.
+  // Global deal order following the 3-2-3 packets so the deck empties in the real
+  // dealer order (next card to leave sits on top). Each card's final z (above the
+  // deck, DOM order) is applied at liftoff so it never pops on landing.
+  const dealG: Record<Position, number[]> = { south: [], west: [], north: [], east: [] }
+  {
+    let g = 0
+    const c: Record<Position, number> = { south: 0, west: 0, north: 0, east: 0 }
+    for (const ps of d.packets) for (const pos of order) for (let j = 0; j < ps; j++) dealG[pos][c[pos]++] = g++
+  }
+
   const layouts: Record<Position, Placement[]> = { south: [], west: [], north: [], east: [] }
   const finalZ = new Map<CardNode, number>()
   for (const pos of order) {
     layouts[pos] = layoutHand(pos, handNodes[pos].length)
     handNodes[pos].forEach((node, i) => {
-      const dealOrder = i * order.length + order.indexOf(pos)
       node.el.classList.add('no-shadow')
-      gsap.set(node.el, { x: deckX, y: deckY, rotation: d.fromRotation, scale: d.deckScale, zIndex: total - dealOrder })
+      gsap.set(node.el, { x: deckX, y: deckY, rotation: d.fromRotation, scale: d.deckScale, zIndex: total - dealG[pos][i] })
       finalZ.set(node, total + order.indexOf(pos) * 8 + i)
     })
   }
@@ -116,33 +122,43 @@ export function dealCascade(): void {
   dealTl?.kill()
   const tl = gsap.timeline({ onComplete: finishDeal })
   dealTl = tl
-  const maxLen = Math.max(...order.map(pos => handNodes[pos].length))
-  let k = 0
-  for (let i = 0; i < maxLen; i++) {
+  tl.call(soundDealBed, undefined, 0)   // soft shuffle bed under the whole cascade
+
+  // Deal in belote packets (3 cards each, then 2, then 3): one packet per player,
+  // packetGap between players, roundGap between rounds. One centered accent per round
+  // (not per packet) so the four near-simultaneous slides don't saturate.
+  const c: Record<Position, number> = { south: 0, west: 0, north: 0, east: 0 }
+  let t = 0, lastLiftoff = 0
+  for (const ps of d.packets) {
+    tl.call(() => soundDealAccent(), undefined, t)   // one accent per round
     for (const pos of order) {
-      const node = handNodes[pos][i]
-      if (!node) continue
-      const [x, y, rot, scale] = layouts[pos][i], at = k * d.stagger
-      const liftoff = (): void => { node.el.classList.remove('no-shadow'); node.el.style.zIndex = String(finalZ.get(node)) }
-      if (pos === 'south' && node.rank && node.suit) {
-        // Travel drives scaleY (size); the flip drives scaleX independently so the
-        // card squishes edge-on, swaps to its face at the pinch, then opens back out.
-        const half = fl.duration / 2, flipAt = at + fl.start * d.perCardDuration
-        const rank = node.rank, suit = node.suit
-        tl.to(node.el, { x: x - cardW / 2, y: y - cardH / 2, rotation: rot, scaleY: scale,
-                         duration: d.perCardDuration, ease: d.ease, onStart: liftoff }, at)
-        tl.to(node.el, { scaleX: 0,     duration: half, ease: fl.ease, onComplete: () => setNodeFace(node, rank, suit) }, flipAt)
-        tl.to(node.el, { scaleX: scale, duration: half, ease: fl.ease }, flipAt + half)
-      } else {
-        tl.to(node.el, { x: x - cardW / 2, y: y - cardH / 2, rotation: rot, scale,
-                         duration: d.perCardDuration, ease: d.ease, onStart: liftoff }, at)
+      for (let j = 0; j < ps; j++) {
+        const i = c[pos]++
+        const node = handNodes[pos][i]
+        if (!node) continue
+        const [x, y, rot, scale] = layouts[pos][i], at = t + j * d.cardStagger
+        lastLiftoff = Math.max(lastLiftoff, at)
+        const liftoff = (): void => { node.el.classList.remove('no-shadow'); node.el.style.zIndex = String(finalZ.get(node)) }
+        if (pos === 'south' && node.rank && node.suit) {
+          // Travel drives scaleY (size); the flip drives scaleX independently so the
+          // card squishes edge-on, swaps to its face at the pinch, then opens back out.
+          const half = fl.duration / 2, flipAt = at + fl.start * d.perCardDuration
+          const rank = node.rank, suit = node.suit
+          tl.to(node.el, { x: x - cardW / 2, y: y - cardH / 2, rotation: rot, scaleY: scale,
+                           duration: d.perCardDuration, ease: d.ease, onStart: liftoff }, at)
+          tl.to(node.el, { scaleX: 0,     duration: half, ease: fl.ease, onComplete: () => setNodeFace(node, rank, suit) }, flipAt)
+          tl.to(node.el, { scaleX: scale, duration: half, ease: fl.ease }, flipAt + half)
+        } else {
+          tl.to(node.el, { x: x - cardW / 2, y: y - cardH / 2, rotation: rot, scale,
+                           duration: d.perCardDuration, ease: d.ease, onStart: liftoff }, at)
+        }
       }
-      k++
+      t += d.packetGap
     }
+    t += d.roundGap
   }
 
   // Deck shadow leaves WITH the last card (fade at its liftoff, not its landing).
-  const lastLiftoff = (k - 1) * d.stagger
   tl.to(deckShadow, { opacity: 0, duration: 0.25, ease: 'power1.out', onComplete: () => deckShadow.remove() }, lastLiftoff)
 
   // "Annonces" banner: pause → slide in (right→centre) → hold → slide out (→left) → pause → unlock.
@@ -161,7 +177,7 @@ export function flyToPli(pos: Position, node: CardNode, socketId: string, reveal
   if (idx >= 0) handNodes[pos].splice(idx, 1)
   if (reveal) setNodeFace(node, reveal.rank, reveal.suit)
   node.el.classList.remove('valid', 'invalid', 'lift')
-  if (socketId !== state.mySocketId) soundPlay()   // my own card already sounded in playCard
+  if (socketId !== state.mySocketId) soundCardPlace()   // my own card already sounded in playCard
   pliNodes.push({ from: pos, socketId, node })
   node.el.style.zIndex = String(PLI_Z_BASE + pliNodes.length)   // fixed by play order, set once
   const area = playfield(), off = pliOffset(pos)
@@ -177,7 +193,20 @@ export function flyMissingTrickCards(trick: { socketId: string; rank: Rank; suit
     const seat = seatBySocket(played.socketId)
     if (!seat) continue
     if (seat.isMe) {
-      flyToPli('south', makeCardNode(played.rank, played.suit, true), played.socketId)
+      // Normally my own card already flew via playCard() (so we never reach here for
+      // it). We DO reach here when the server played for me — a turn-timer auto-play —
+      // where no local playCard ran: fly the real card out of my hand and drop it from
+      // myHand, instead of conjuring a phantom while the original lingers in the fan.
+      // (Session restore: the card's already gone from myHand → findSouthNode misses →
+      // fall back to a fresh node, which is correct there.)
+      const mine = findSouthNode(played.rank, played.suit)
+      if (mine) {
+        const i = state.myHand.findIndex(c => c.rank === played.rank && c.suit === played.suit)
+        if (i >= 0) state.myHand.splice(i, 1)
+        flyToPli('south', mine, played.socketId)
+      } else {
+        flyToPli('south', makeCardNode(played.rank, played.suit, true), played.socketId)
+      }
     } else {
       const handFor = handNodes[seat.position]
       const node = handFor[handFor.length - 1]

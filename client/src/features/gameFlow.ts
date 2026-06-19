@@ -1,7 +1,7 @@
 import { byId } from '../core/dom.js'
 import { showScreen } from '../core/router.js'
 import { socket } from '../core/socket.js'
-import { initGame, applyDealt, lockForDeal, state } from '../game/index.js'
+import { initGame, applyDealt, applyTurnTimer, lockForDeal, state } from '../game/index.js'
 import { escapeHtml, computeGameScore, setTeamNames, recordGameResult, updateScoreUI } from '../ui/scoring.js'
 import { getMyTeam, setMyTeam } from '../core/clientState.js'
 import type { Team } from '../../../shared/types.js'
@@ -21,6 +21,9 @@ export function initGameFlow(): void {
     await initGame(byId<HTMLDivElement>('game'), socket.id)
     applyDealt(data)
   })
+
+  // Per-turn countdown on the active seat (phase-agnostic). null = clear.
+  socket.on('turn:timer', applyTurnTimer)
 
   socket.on('game:over', ({ scores, tricksWon, beloteBonus, bid }) => {
     const team      = getMyTeam() ?? 'A'

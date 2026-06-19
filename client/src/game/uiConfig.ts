@@ -52,6 +52,15 @@ export interface LayoutPreset {
   /** Seat name-plate base font in px. The ★ leader marker and the bid label scale
    *  off it (em-relative in CSS), so this one number sizes the whole plate. */
   seatFontPx: number
+  /** Seat AVATAR (replaces the name text). size = circle diameter px (fixed per preset,
+   *  like seatFontPx) · ring = team-colour border px · sat/light = HSL of the per-pseudo
+   *  colour fill · spin = "your turn" rotating-arc period (s) · glow = how far that arc
+   *  extends past the rim (px). The name itself shows as a tap/hover tooltip. */
+  avatar:    { size: number; ring: number; sat: number; light: number; spin: number; glow: number }
+  /** Turn-timer badge on the active seat's avatar (cercle + chiffre). size/num are
+   *  FACTORS of the avatar diameter (ring px / number px). E/W sit below the avatar
+   *  (ewDy down, ewDx horizontal nudge); N/S sit to the right (nsDx across, nsDy nudge). */
+  timer:     { size: number; num: number; ewDy: number; ewDx: number; nsDx: number; nsDy: number }
   /** HUD vertical offsets, ×ch. bidY = bid box offset from table centre ·
    *  contractY = play-phase contract recap, anchored this far ABOVE the south name plate. */
   hud:       { bidY: number; contractY: number }
@@ -69,20 +78,24 @@ export const LAYOUT_PRESETS: Record<PresetName, LayoutPreset> = {
     north:   { top: 0.43, step: 0.45, scale: 1.0 },
     side:    { edge: 0.44, step: 0.45, vshift: 0.0, scale: 0.95 },
     pli:     { spread: 0.78, rot: 6, messageY: 0.95 },
-    plate:   { southY: 1.10, northY: 1.16, sideGap: 0.25, sideY: 0.0 },
+    plate:   { southY: 1.2, northY: 1.24, sideGap: 0.42, sideY: 0.0 },
     seatFontPx: 30,
+    avatar:  { size: 64, ring: 8, sat: 60, light: 30, spin: 2.4, glow: 16 },
+    timer:   { size: 0.92, num: 0.36, ewDy: 35, ewDx: 0, nsDx: 40, nsDy: 0 },
     hud:     { bidY: 0.0, contractY: 0.5 },
     confirm: { cardY: 0.90, scale: 1.30, boxY: 1.89, boxGap: 0.40, boxSize: 58 },
   },
   portrait: {
     page:    { margin: 0.06, maxAspect: 1.4 },
     cardScale: 1.2,
-    south:   { bottom: 1.0, step: 0.5, arc: 80, fan: 22, scale: 1.1 },
+    south:   { bottom: 1.0, step: 0.5, arc: 80, fan: 22, scale: 1.05 },
     north:   { top: -0.45, step: 0.24, scale: 0.9 },
     side:    { edge: -0.5, step: 0.4, vshift: 0.0, scale: 0.9 },
     pli:     { spread: 0.62, rot: 6, messageY: 0.92 },
-    plate:   { southY: 1.9, northY: 0.55, sideGap: 0.3, sideY: 0.0 },
+    plate:   { southY: 1.9, northY: 0.55, sideGap: 0.38, sideY: 0.0 },
     seatFontPx: 15,
+    avatar:  { size: 44, ring: 2.5, sat: 60, light: 30, spin: 2.4, glow: 10 },
+    timer:   { size: 0.92, num: 0.36, ewDy: 20, ewDx: 0, nsDx: 20, nsDy: 0 },
     hud:     { bidY: 0.0, contractY: 0.45 },
     confirm: { cardY: -0.10, scale: 1.35, boxY: 1.30, boxGap: 1.20, boxSize: 60 },
   },
@@ -98,16 +111,20 @@ export const PLI = {
 export const ANIMATION = {
   /** Generic card move: deal snap-to-place, hand re-fan, fly-to-pli. */
   cardMove: { duration: 0.34, ease: 'power3.out' },
-  /** Deck deal (tuned in proto/deal-anim.html): every card starts stacked on a
-   *  central deck, then flies one-by-one to its slot. Cards are dealt index-major /
-   *  seat-minor so the four hands fill in parallel. A single deck shadow stands in
-   *  for the 32 stacked card shadows (per-card shadow returns at liftoff).
+  /** Deck deal (tuned in proto/deal-sound.html): every card starts stacked on a
+   *  central deck, then flies to its slot in **belote packets** — each player gets
+   *  3 cards, then 2, then 3. A single deck shadow stands in for the 32 stacked card
+   *  shadows (per-card shadow returns at liftoff).
    *    deckScale — size of the deck stack (≈ opponent-card scale, the side preset).
    *    deckOffsetY — deck position ×ch below table centre (0 = dead centre).
    *    fromRotation — rotation of a card while still on the deck.
    *    perCardDuration / ease — each card's individual flight.
-   *    stagger — delay (s) between consecutive cards leaving the deck. */
-  deal: { deckScale: 0.95, fromRotation: 0, deckOffsetY: 0, perCardDuration: 0.8, stagger: 0.09, ease: 'back.out(1.3)' },
+   *    packets — packet sizes served to each player in turn (must sum to 8).
+   *    cardStagger — delay (s) between cards of the SAME packet.
+   *    packetGap — delay (s) between successive packets (player → player).
+   *    roundGap — extra pause (s) between packet rounds (3 → 2 → 3). */
+  deal: { deckScale: 0.95, fromRotation: 0, deckOffsetY: 0, perCardDuration: 0.7,
+          packets: [3, 2, 3], cardStagger: 0.04, packetGap: 0.5, roundGap: 0, ease: 'back.out(1.3)' },
   /** South cards only: face-down on the deck, flip to face-up mid-flight (scaleX
    *  squish + face swap at the pinch). start = fraction of the flight when the flip
    *  begins; duration = total flip seconds. */
@@ -122,6 +139,9 @@ export const ANIMATION = {
   sweep: { duration: 0.45, ease: 'power2.in', stagger: 0.05, toScale: 0.35 },
   /** Pause after a trick completes before it sweeps away (ms). */
   trickSweepDelayMs: 750,
+  /** "X remporte le pli" auto-hides this long after the trick completes (ms) — so the
+   *  last trick's message doesn't linger into the next game's bidding phase. */
+  trickMessageHideMs: 2000,
 }
 
 // ── SVG card colours ──────────────────────────────────────────────────

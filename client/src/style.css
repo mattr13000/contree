@@ -83,23 +83,67 @@ body {
 .g-seat {
   position: absolute;
   transform: translate(-50%, -50%);
-  display: flex; flex-direction: column; align-items: center; gap: 2px;
-  pointer-events: none; white-space: nowrap; z-index: 30;
+  display: flex; flex-direction: column; align-items: center; gap: 3px;
+  pointer-events: none; white-space: nowrap;
+  /* Above every card layer (hands 32–63, pli ≤68) so the avatar marker + its name
+     tooltip stay visible; still below the confirm/last-trick dim (70) and HUD (95). */
+  z-index: 69;
 }
-/* Side plates are EDGE-anchored at platePos (which sits a padding past the hand's
-   inner edge) so the name only ever grows toward centre — a long name can never
-   reach back over the hand. West pins its left edge; east pins its right edge. */
-.g-seat.west { transform: translate(0, -50%);     align-items: flex-start; }
-.g-seat.east { transform: translate(-100%, -50%); align-items: flex-end; }
-/* Plate font-size is set inline per preset (uiConfig seatFontPx); children use em. */
-.g-seat .g-name {
-  font-weight: bold; font-size: 1em; padding: 0.2em 0.66em; border-radius: 7px;
-  text-shadow: 0 1px 3px #000; line-height: 1.1;
-}
-.g-seat.ally .g-name { color: #6ab0ff; }
-.g-seat.foe  .g-name { color: #ff7070; }
-.g-seat.turn .g-name { box-shadow: 0 0 0 2px #daa520, 0 0 14px rgba(218, 165, 32, 0.6); }
 .g-seat .g-star { color: #ffd700; font-size: 0.7em; line-height: 1; text-shadow: 0 1px 2px #000; height: 0.8em; }
+
+/* Seat AVATAR — fixed-footprint circle (initials + per-pseudo colour) replacing the name
+   plate, so a long name can never bleed into the play zone (the side-plate overlap bug).
+   Size/colour are set inline per preset (uiConfig `avatar`); the name is a tap/hover tip. */
+.g-avatar {
+  position: relative; pointer-events: auto; cursor: pointer;
+  border-radius: 50%; display: flex; align-items: center; justify-content: center;
+  font-family: system-ui, sans-serif; font-weight: 700; color: #fff; letter-spacing: 0.5px;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.55); border: 2px solid #ff7070;
+  box-shadow: 0 2px 7px rgba(0, 0, 0, 0.5); -webkit-tap-highlight-color: transparent;
+}
+.g-seat.ally .g-avatar { border-color: #6ab0ff; }
+.g-seat.foe  .g-avatar { border-color: #ff7070; }
+/* "your turn" = steady gold ring + a gold arc orbiting behind the avatar (the opaque
+   circle masks its centre, so only the sweeping arc peeks out past the rim). */
+.g-seat.turn .g-avatar { box-shadow: 0 0 0 3px #daa520, 0 0 16px rgba(218, 165, 32, 0.7); }
+.g-seat.turn .g-avatar::before {
+  content: ''; position: absolute; z-index: -1; border-radius: 50%;
+  inset: calc(-1 * var(--turn-glow, 8px));
+  background: conic-gradient(from 0deg, rgba(218, 165, 32, 0) 0deg, rgba(218, 165, 32, 0) 140deg,
+    #f0c040 200deg, #f0c040 320deg, rgba(218, 165, 32, 0) 360deg);
+  filter: blur(1px); animation: g-turn-spin var(--turn-spin, 2.4s) linear infinite;
+}
+@keyframes g-turn-spin { to { transform: rotate(1turn); } }
+
+/* Turn timer badge (cercle + chiffre) on the active seat's avatar. Size + anchor are
+   set inline per preset (uiConfig `timer`): E/W below the avatar, N/S to its right.
+   White, red in the final seconds. Updated each frame by game/turnTimer.ts. */
+.g-timer {
+  position: absolute; z-index: 42; pointer-events: none;
+  display: flex; align-items: center; justify-content: center;
+  font-family: system-ui, sans-serif; font-weight: 800; line-height: 1; color: #fff;
+  text-shadow: 0 1px 3px #000, 0 0 7px rgba(0, 0, 0, 0.6); transition: color 0.2s;
+}
+.g-timer.danger { color: #ff7070; text-shadow: 0 1px 3px #000, 0 0 9px rgba(255, 80, 80, 0.6); }
+.g-timer-ring { width: 100%; height: 100%; transform: rotate(-90deg); filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.5)); }
+.g-timer-track { fill: none; stroke: rgba(0, 0, 0, 0.38); stroke-width: 3.2; }
+.g-timer-bar { fill: none; stroke: #fff; stroke-width: 3.2; stroke-linecap: round; transition: stroke 0.2s; }
+.g-timer.danger .g-timer-bar { stroke: #ff7070; }
+.g-timer-num { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); }
+
+/* Name tooltip — hidden by default; shown globally (#game.show-names from the menu toggle),
+   per-seat on tap (.revealed, 2s), or on hover (desktop). */
+.g-name-tip {
+  position: absolute; left: 50%; transform: translateX(-50%); bottom: calc(100% + 5px);
+  background: rgba(0, 0, 0, 0.82); border: 1px solid rgba(255, 255, 255, 0.15);
+  padding: 3px 10px; border-radius: 7px; font-weight: bold; font-size: 14px;
+  text-shadow: 0 1px 3px #000; opacity: 0; transition: opacity 0.15s; pointer-events: none;
+}
+.g-seat.north .g-name-tip { bottom: auto; top: calc(100% + 5px); }
+.g-seat.ally .g-name-tip { color: #6ab0ff; }
+.g-seat.foe  .g-name-tip { color: #ff7070; }
+#game.show-names .g-name-tip, .g-seat.revealed .g-name-tip { opacity: 1; }
+@media (hover: hover) { .g-seat:hover .g-name-tip { opacity: 1; } }
 .g-seat .g-bid  { font-size: 0.8em; font-weight: bold; text-shadow: 0 1px 3px #000; line-height: 1; }
 .g-bid.pass    { color: rgba(195, 195, 195, 0.85); }
 .g-bid.contree { color: #cf86e0; }
@@ -117,22 +161,36 @@ body {
 .g-bidhud .turn { font-size: 14px; font-weight: bold; margin-top: 3px; }
 .g-bidhud .turn.me { color: #daa520; }
 
-.g-contract {
-  position: absolute; transform: translate(-50%, -50%); z-index: 25; pointer-events: none; white-space: nowrap;
-  background: rgba(0, 0, 0, 0.34); border-radius: 9px; padding: 5px 15px; font-size: 14px; line-height: 1.2;
+/* Single top-left HUD box: trick count, bid recap, "Dernier pli" review button. */
+.g-hud {
+  /* Above every table-card layer (hands 32–56, pli 64, lift/last-trick 80, confirm box 90)
+     so it's never buried — esp. by the north hand on mobile — yet below the centered
+     slam announcements (100/110) and the full-screen modals (200/300). */
+  position: absolute; top: 10px; left: 10px; z-index: 95; pointer-events: none;
+  display: flex; flex-direction: column; align-items: stretch; gap: 5px;
+  background: rgba(0, 0, 0, 0.34); border-radius: 10px; padding: 8px 11px;
+  font-size: 13px; line-height: 1.3;
 }
+.g-hud-plis { display: flex; justify-content: space-between; gap: 16px; letter-spacing: 1px; }
+.g-hud-plis span { opacity: 0.5; }
+.g-hud-plis b { color: #fff; }
+
+.g-contract { white-space: nowrap; }
 .g-contract .lbl { font-size: 9px; letter-spacing: 1.5px; opacity: 0.5; }
 .g-contract b { color: #fff; font-size: 17px; }
 .g-contract .red { color: #ff8a8a; }
 .g-contract .mult { color: #cf86e0; }
 
-.g-trickhud {
-  position: absolute; top: 10px; left: 10px; z-index: 40; pointer-events: none;
-  background: rgba(0, 0, 0, 0.34); border-radius: 10px; padding: 8px 11px; font-size: 13px; line-height: 1.6;
+.g-hud-lastpli {
+  pointer-events: auto; cursor: pointer; margin-top: 2px; padding: 5px 8px;
+  border: 1px solid rgba(255, 255, 255, 0.22); border-radius: 7px;
+  background: rgba(255, 255, 255, 0.08); color: #f0e6c8; font: inherit; font-size: 12px;
 }
-.g-trickhud .row { display: flex; justify-content: space-between; gap: 12px; }
-.g-trickhud .a { color: #6ab0ff; }
-.g-trickhud .b { color: #ff7070; }
+.g-hud-lastpli:hover:not(:disabled) { background: rgba(255, 255, 255, 0.16); }
+.g-hud-lastpli:disabled { opacity: 0.35; cursor: default; }
+
+/* "Dernier pli" review cards: laid out like the field, above the confirm dim. */
+.g-lasttrick-card { z-index: 80; }
 
 .g-trickmsg {
   position: absolute; transform: translateX(-50%); z-index: 25; pointer-events: none;
@@ -146,10 +204,10 @@ body {
 #game.preset-desktop .g-bidhud .val    { font-size: 60px; }
 #game.preset-desktop .g-bidhud .holder { font-size: 18px; }
 #game.preset-desktop .g-bidhud .turn   { font-size: 21px; }
-#game.preset-desktop .g-contract       { font-size: 21px; }
+#game.preset-desktop .g-hud            { font-size: 22px; }
 #game.preset-desktop .g-contract .lbl  { font-size: 14px; }
 #game.preset-desktop .g-contract b     { font-size: 26px; }
-#game.preset-desktop .g-trickhud       { font-size: 25px; }
+#game.preset-desktop .g-hud-lastpli    { font-size: 17px; }
 #game.preset-desktop .g-trickmsg       { font-size: 23px; }
 
 /* ── Panel ─────────────────────────────────────────────────── */
@@ -383,10 +441,24 @@ button.hidden { display: none; }
 }
 
 #bid-current-info {
-  font-size: 12px;
   letter-spacing: 1.5px;
   color: #daa520;
   text-transform: uppercase;
+}
+#bid-current-info .bid-current-bid {
+  font-size: 24px;
+  font-weight: bold;
+  line-height: 1.2;
+}
+#bid-current-info .bid-current-bidder {
+  font-size: 15px;
+  margin-top: 2px;
+  color: rgba(240, 230, 200, 0.7);
+}
+#bid-current-info .bid-current-bidder .ally { color: #6ab0ff; font-weight: bold; }
+#bid-current-info .bid-current-bidder .foe  { color: #ff7070; font-weight: bold; }
+#bid-current-info .bid-current-empty {
+  font-size: 12px;
 }
 
 .bid-selector {

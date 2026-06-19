@@ -1,7 +1,7 @@
-import { players, rooms, games, getRoomList, roomPayload, isBot, botTimers, roomBusyUntil } from './state.js'
+import { players, rooms, games, getRoomList, roomPayload, isBot, botTimers, roomBusyUntil, clearTurnTimer } from './state.js'
 import type {
   Team, Card, Seat, Room, Rank, Suit, BidValue,
-  TeamScores, BidInfo, LastAction, BeloteHolder, TrickState,
+  TeamScores, BidInfo, LastAction, BeloteHolder, TrickState, GameState,
 } from '../shared/types.js'
 import type { AppServer } from './io-types.js'
 import {
@@ -15,11 +15,20 @@ import { cardPoints, trickWinnerCard, getValidCards, buildDeck, shuffle } from '
 let io!: AppServer
 export function init(_io: AppServer): void { io = _io }
 
-// ── Bot turn hook (injected by bot.ts; no-op for human-only games) ──
-// Called whenever the acting seat may have changed, so the bot driver can
-// schedule a move if the new actor is a bot. Injected to avoid a game↔bot cycle.
-let onTurnChange: (roomId: string) => void = () => {}
-export function setTurnHook(fn: (roomId: string) => void): void { onTurnChange = fn }
+// ── Turn-change hooks (injected by bot.ts + turn-timer.ts) ──────────
+// Fired whenever the acting seat may have changed. Subscribers react to the new
+// actor: the bot driver schedules a bot move, the turn-timer arms the human
+// countdown. Injected (not imported) to avoid a game↔driver import cycle.
+const turnHooks: Array<(roomId: string) => void> = []
+export function addTurnHook(fn: (roomId: string) => void): void { turnHooks.push(fn) }
+function fireTurnHooks(roomId: string): void { for (const fn of turnHooks) fn(roomId) }
+
+/** The socketId of the seat currently expected to act (bid or play), or undefined. */
+export function currentActorId(game: GameState): string | undefined {
+  if (game.phase === 'bidding') return game.seats[game.bidding.currentBidderIdx]?.socketId
+  if (game.phase === 'playing' && game.trickState) return game.seats[game.trickState.currentPlayerIdx]?.socketId
+  return undefined
+}
 
 const SURCONTREE_DELAY_MS = 1500
 
@@ -49,6 +58,7 @@ export function leaveRoom(socketId: string): void {
   if (room.players.length === 0) {
     rooms.delete(roomId)
     games.delete(roomId)
+    clearTurnTimer(roomId)
     pushRoomList()
     return
   }
@@ -63,6 +73,7 @@ export function leaveRoom(socketId: string): void {
     if (t) clearTimeout(t)
     botTimers.delete(roomId)
     roomBusyUntil.delete(roomId)
+    clearTurnTimer(roomId)
     pushRoomList()
     return
   }
@@ -75,6 +86,7 @@ export function leaveRoom(socketId: string): void {
 
 // ── Game flow ─────────────────────────────────────────────────────
 export function deal(room: Room): void {
+  clearTurnTimer(room.id)            // kill any countdown lingering from the previous game
   const deck      = shuffle(buildDeck())
   const prevGame  = games.get(room.id)
   const dealerIdx = prevGame ? (prevGame.dealerIdx + 1) % 4 : 0
@@ -97,6 +109,7 @@ export function deal(room: Room): void {
     roomId: room.id, seats, hands, dealerIdx, bidderIdx, phase: 'bidding',
     cumulativeScores: prevGame?.cumulativeScores ?? { A: 0, B: 0 },
     bidding: { currentBidderIdx: bidderIdx, passCount: 0, highBid: null, contree: false },
+    turnDeadline: null,
   })
 
   // Hold bots until the deck-deal + "Annonces" banner finish on the human's screen.
@@ -126,7 +139,7 @@ export function emitBidState(roomId: string, lastAction: LastAction | null = nul
     contree:               bidding.contree,
     lastAction,
   })
-  onTurnChange(roomId)
+  fireTurnHooks(roomId)
 }
 
 export function bidWon(roomId: string): void {
@@ -197,12 +210,17 @@ export function emitPlayState(roomId: string): void {
   }
   const validCards = getValidCards(currentHand, trickState.trick, trump, current.socketId, seats)
   io.to(current.socketId).emit('play:your-turn', { validCards })
-  onTurnChange(roomId)
+  fireTurnHooks(roomId)
 }
 
 export function resolveTrick(roomId: string): void {
   const game = games.get(roomId)
   if (!game?.trickState || !game.trump || !game.bidding.highBid) return
+  // The 4th card was just played but resolveTrick doesn't emit a play:state, so no
+  // turn hook re-arms here. Cancel the just-acted seat's countdown explicitly; the
+  // next trick's emitPlayState (2s later) arms the new leader.
+  clearTurnTimer(roomId)
+  game.turnDeadline = null
   const { trickState, seats, trump } = game
 
   const winner     = trickWinnerCard(trickState.trick, trump)

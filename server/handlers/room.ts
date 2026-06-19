@@ -4,16 +4,16 @@ import { makeBots } from '../bot.js'
 import type { Room } from '../../shared/types.js'
 import type { AppServer, AppSocket } from '../io-types.js'
 
-const NICKNAME_MAX_LEN = 20
-const PLAYER_COUNT     = 4
+const NICKNAME_RE  = /^[a-zA-Z0-9]{3,12}$/
+const PLAYER_COUNT = 4
 
 let roomCounter = 0
 
 /** nickname:set, lobby:enter/leave, room:create/join/leave/start. */
 export function registerRoomHandlers(io: AppServer, socket: AppSocket): void {
   socket.on('nickname:set', raw => {
-    const nickname = String(raw).trim().slice(0, NICKNAME_MAX_LEN)
-    if (!nickname) return
+    const nickname = String(raw).trim()
+    if (!NICKNAME_RE.test(nickname)) return
     players.get(socket.id)!.nickname = nickname
     socket.emit('nickname:ok', nickname)
   })

@@ -39,6 +39,13 @@ export interface RenderState {
   validCards: Card[]
   trickInfo: RenderTrickInfo | null
   trickMessage: string | null
+  /** The 4 cards of the last completed trick (with the seat that played each),
+   *  kept so the player can review it via the HUD "Dernier pli" button. */
+  lastTrick: { from: Position; rank: Rank; suit: Suit }[] | null
+  /** Turn-timer countdown on the LOCAL clock (performance.now() ms at which it hits 0),
+   *  null = no countdown. turnDuration = the full turn span (ms) for the ring fraction. */
+  turnDeadline: number | null
+  turnDuration: number
 }
 
 export const state: RenderState = {
@@ -60,11 +67,15 @@ export const state: RenderState = {
   validCards:   [],
   trickInfo:    null,
   trickMessage: null,
+  lastTrick:    null,
+  turnDeadline: null,
+  turnDuration: 0,
 }
 
-// Card chosen but not yet confirmed (tap-to-confirm, anti-misclick). Held on a
-// mutable object so its value can be read/cleared from any game/*.ts module.
-export const ui: { pendingCard: Card | null } = { pendingCard: null }
+// Transient UI flags held on a mutable object so any game/*.ts module can read/clear
+// them: the tap-to-confirm pending card, and whether the "Dernier pli" review overlay
+// is open.
+export const ui: { pendingCard: Card | null; lastTrickOpen: boolean } = { pendingCard: null, lastTrickOpen: false }
 
 let onCardPlay: ((card: Card) => void) | null = null
 export function setOnCardPlay(cb: (card: Card) => void): void { onCardPlay = cb }
