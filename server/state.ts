@@ -12,6 +12,19 @@ export const botTimers     = new Map<string, ReturnType<typeof setTimeout>>()
 /** "Table is animating a transition until this ts" — paces bots past UI animations. */
 export const roomBusyUntil = new Map<string, number>()
 
+// ── Turn-timer bookkeeping ──────────────────────────────────────────
+/** One pending auto-act timer per room for the current HUMAN actor. `actorId` is
+ *  the seat it was armed for, so a no-op re-emit (e.g. another player reconnecting)
+ *  can keep the running countdown instead of resetting it. */
+export const turnTimers = new Map<string, { actorId: string; deadline: number; timer: ReturnType<typeof setTimeout> }>()
+
+/** Cancel + forget a room's pending turn timer (no-op if none). */
+export function clearTurnTimer(roomId: string): void {
+  const t = turnTimers.get(roomId)
+  if (t) clearTimeout(t.timer)
+  turnTimers.delete(roomId)
+}
+
 /** Virtual (server-driven) players carry a `bot:` id prefix — no real socket. */
 export function isBot(id: string): boolean { return id.startsWith('bot:') }
 

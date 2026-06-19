@@ -95,6 +95,9 @@ export interface GameState {
   cumulativeScores: TeamScores
   bidding: BiddingState
   trickState?: TrickState
+  /** Epoch ms when the current human actor's turn auto-resolves (pass/random card).
+   *  null/absent = no countdown running (bot's turn, actor disconnected, between games). */
+  turnDeadline?: number | null
 }
 
 // ── Lobby / session entities ───────────────────────────────────────
@@ -182,6 +185,14 @@ export interface VictoryPayload {
   cumulativeScores: TeamScores
 }
 
+/** Turn-timer tick for the current actor's seat. Sent relative (not as an absolute
+ *  deadline) so the client runs it on its own clock — no server/client skew.
+ *  `null` clears the countdown (bot's turn, actor disconnected, between turns). */
+export interface TurnTimerPayload {
+  remainingMs: number
+  durationMs: number
+}
+
 /** Snapshot sent on session:restore so the client jumps to the right screen. */
 export type Restored =
   | {
@@ -192,6 +203,8 @@ export type Restored =
       playState:
         | (Omit<PlayStatePayload, 'trickLeaderSocketId'> & { bid: BidInfo })
         | null
+      /** Resume the turn countdown on reconnect (null = none running). */
+      turnTimer: TurnTimerPayload | null
     }
   | { state: 'waiting'; nickname: string | null; room: RoomPayload; isCreator: boolean }
   | { state: 'lobby'; nickname: string | null }
@@ -218,6 +231,7 @@ export interface ServerToClientEvents {
   'play:state': (p: PlayStatePayload) => void
   'play:your-turn': (p: { validCards: Card[] }) => void
   'play:belote': (p: { nickname: string | undefined; type: 'belote' | 'rebelote' }) => void
+  'turn:timer': (p: TurnTimerPayload | null) => void
   'trick:won': (p: TrickWonPayload) => void
   'game:over': (p: GameOverPayload) => void
   'game:victory': (p: VictoryPayload) => void

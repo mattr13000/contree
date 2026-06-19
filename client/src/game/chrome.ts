@@ -9,8 +9,25 @@ import { SUIT_SYMBOLS, isRedSuit, cardSVG } from './cards.js'
 import { state, seatAt, seatBySocket, ui } from './state.js'
 import type { RenderSeat } from './state.js'
 import type { Position } from '../../../shared/types.js'
+import { TURN_TIMER_DANGER_MS } from '../../../shared/constants.js'
 import { cancelConfirm, confirmPlay, toggleLastTrick, closeLastTrick } from './index.js'
 import { isDealAnimating } from './animations.js'
+
+const TIMER_RING_C = 2 * Math.PI * 16   // SVG ring circumference (r=16, viewBox 36)
+
+/** Cercle + chiffre badge for the active seat (hidden during the deal cascade).
+ *  Initial frame is painted inline so there's no blank flash; turnTimer.ts then
+ *  updates it each frame. Returns '' when no countdown should show on this seat. */
+function turnTimerMarkup(seat: RenderSeat): string {
+  if (!isTurnSeat(seat.socketId) || state.turnDeadline == null || isDealAnimating()) return ''
+  const remaining = Math.max(0, state.turnDeadline - performance.now())
+  const frac = state.turnDuration > 0 ? Math.min(1, remaining / state.turnDuration) : 0
+  const danger = remaining <= TURN_TIMER_DANGER_MS
+  return `<div class="g-timer${danger ? ' danger' : ''}">` +
+    `<svg class="g-timer-ring" viewBox="0 0 36 36"><circle class="g-timer-track" cx="18" cy="18" r="16"/>` +
+    `<circle class="g-timer-bar" cx="18" cy="18" r="16" style="stroke-dasharray:${TIMER_RING_C};stroke-dashoffset:${TIMER_RING_C * (1 - frac)}"/></svg>` +
+    `<span class="g-timer-num">${Math.ceil(remaining / 1000)}</span></div>`
+}
 
 let chromeNodes: HTMLElement[] = []   // plates / HUD / trick message / confirm overlay (rebuilt each update)
 
@@ -59,7 +76,7 @@ function makePlate(seat: RenderSeat): HTMLDivElement {
   const av = cfg.avatar, fill = `hsl(${hueFromName(seat.nickname)}, ${av.sat}%, ${av.light}%)`
   el.innerHTML =
     `<span class="g-star"${isLeader ? '' : ' style="visibility:hidden"'}>★</span>` +
-    `<div class="g-avatar" style="background:${fill}">${escapeText(initials(seat.nickname))}</div>` +
+    `<div class="g-avatar" style="background:${fill}">${escapeText(initials(seat.nickname))}${turnTimerMarkup(seat)}</div>` +
     bidLabel +
     `<div class="g-name-tip">${escapeText(seat.nickname)}</div>`
   el.style.fontSize = cfg.seatFontPx + 'px'   // base; ★ + bid label scale off it (em in CSS)
@@ -70,6 +87,19 @@ function makePlate(seat: RenderSeat): HTMLDivElement {
   avEl.style.setProperty('--turn-glow', av.glow + 'px')
   avEl.style.setProperty('--turn-spin', av.spin + 's')
   avEl.addEventListener('click', e => { e.stopPropagation(); toggleReveal(seat.position) })
+  // Size + anchor the timer badge (E/W below the avatar, N/S to its right).
+  const tEl = el.querySelector('.g-timer') as HTMLElement | null
+  if (tEl) {
+    const t = cfg.timer
+    tEl.style.width = tEl.style.height = (av.size * t.size) + 'px'
+    const numEl = tEl.querySelector('.g-timer-num') as HTMLElement | null
+    if (numEl) numEl.style.fontSize = (av.size * t.num) + 'px'
+    if (seat.position === 'west' || seat.position === 'east') {
+      tEl.style.top = `calc(100% + ${t.ewDy}px)`; tEl.style.left = `calc(50% + ${t.ewDx}px)`; tEl.style.transform = 'translateX(-50%)'
+    } else {
+      tEl.style.left = `calc(100% + ${t.nsDx}px)`; tEl.style.top = `calc(50% + ${t.nsDy}px)`; tEl.style.transform = 'translateY(-50%)'
+    }
+  }
   const [px, py] = platePos[seat.position]()
   el.style.left = px + 'px'; el.style.top = py + 'px'
   return el

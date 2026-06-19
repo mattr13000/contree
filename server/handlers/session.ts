@@ -1,6 +1,7 @@
 import { players, rooms, games, sessions,
          generateId, migrateSocketId, roomPayload } from '../state.js'
 import { leaveRoom, emitPlayState, emitBidState } from '../game.js'
+import { TURN_TIMEOUT_MS } from '../../shared/constants.js'
 import type { Restored } from '../../shared/types.js'
 import type { AppServer, AppSocket } from '../io-types.js'
 
@@ -58,6 +59,9 @@ export function registerSessionHandlers(_io: AppServer, socket: AppSocket): void
           trump:        game.trump!,
           bid:          { ...game.bidding.highBid!, contree: game.bidding.contree },
         } : null,
+        turnTimer: game.turnDeadline && game.turnDeadline > Date.now()
+          ? { remainingMs: game.turnDeadline - Date.now(), durationMs: TURN_TIMEOUT_MS }
+          : null,
       }
     } else if (room) {
       restored = {

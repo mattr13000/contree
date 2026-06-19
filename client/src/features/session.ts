@@ -2,7 +2,7 @@ import { byId } from '../core/dom.js'
 import { showScreen } from '../core/router.js'
 import { socket } from '../core/socket.js'
 import { startMusic } from '../audio/soundManager.js'
-import { initGame, applyDealt, applyBidState, applyPlayState, runAfterDeal } from '../game/index.js'
+import { initGame, applyDealt, applyBidState, applyPlayState, applyTurnTimer, runAfterDeal } from '../game/index.js'
 import { applyBidUIState } from '../ui/bid-ui.js'
 import { renderWaiting } from './waiting.js'
 import { getMyTeam, setMyTeam } from '../core/clientState.js'
@@ -38,6 +38,7 @@ export function initSession(): void {
         } else if (restored.playState) {
           applyPlayState(restored.playState)
         }
+        applyTurnTimer(restored.turnTimer)   // resume the countdown (null if none was running)
       })
     }
   })

@@ -27,3 +27,11 @@ export const CAPOT_VALUE   = 250
 export const CHUTE_POINTS  = 160
 export const BELOTE_BONUS  = 20
 export const WINNING_SCORE = 500
+
+// ── Turn timer ─────────────────────────────────────────────────────
+/** Time a human seat has to act before the server auto-acts (pass while bidding,
+ *  a random valid card while playing). The countdown starts AFTER the table's
+ *  busy lock (deal/play-start animations), so it never runs during the cascade. */
+export const TURN_TIMEOUT_MS      = 20_000
+/** Below this remaining time the client paints the countdown red. */
+export const TURN_TIMER_DANGER_MS = 5_000

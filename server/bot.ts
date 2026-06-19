@@ -2,7 +2,7 @@
 // Bots are virtual players (no socket): a turn hook from game.ts calls scheduleBotTurn
 // whenever the acting seat may have changed, and we make a move if it's a bot's turn.
 import { players, games, sessions, botTimers, roomBusyUntil, isBot, generateId } from './state.js'
-import { setTurnHook, applyBid, applyPass, applyContree, applyPlay } from './game.js'
+import { addTurnHook, applyBid, applyPass, applyContree, applyPlay } from './game.js'
 import { getValidCards, trickWinnerCard, cardPoints, trumpStrength, regularStrength } from './rules.js'
 import { GAME_SUITS, bidNumeric, TRUMP_POINTS } from '../shared/constants.js'
 import type { Card, Suit, BidValue, Team, Seat, PlayedCard, HighBid, Contree, GameState } from '../shared/types.js'
@@ -19,7 +19,7 @@ const JITTER_MAX = 1500
 
 /** Register the turn hook so game.ts drives us. Called once at startup. */
 export function initBots(): void {
-  setTurnHook(scheduleBotTurn)
+  addTurnHook(scheduleBotTurn)
 }
 
 /** Create `count` bot Players (roomId set by the caller). Avoids the human's name. */

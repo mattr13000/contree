@@ -7,6 +7,7 @@ import { dirname, join } from 'path'
 import { players } from './state.js'
 import { init as initGame } from './game.js'
 import { initBots } from './bot.js'
+import { init as initTurnTimerIo, initTurnTimer } from './turn-timer.js'
 import { registerSessionHandlers } from './handlers/session.js'
 import { registerRoomHandlers } from './handlers/room.js'
 import { registerBiddingHandlers } from './handlers/bidding.js'
@@ -20,7 +21,9 @@ const isDev      = process.env.NODE_ENV !== 'production'
 
 const io: AppServer = new Server(httpServer, isDev ? { cors: { origin: '*' } } : {})
 initGame(io)
-initBots()   // registers the bot turn hook on game.ts
+initBots()         // registers the bot turn hook on game.ts
+initTurnTimerIo(io)
+initTurnTimer()    // registers the human turn-timer hook on game.ts
 
 if (!isDev) {
   app.use(express.static(join(__dirname, '../dist')))

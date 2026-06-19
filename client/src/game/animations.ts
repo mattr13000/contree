@@ -9,7 +9,7 @@ import {
   computeScale, cfg, cardW, cardH, playfield, layoutHand, pliOffset, platePos,
 } from './layout.js'
 import type { Placement } from './layout.js'
-import { handNodes, pliNodes, root } from './nodes.js'
+import { handNodes, pliNodes, root, findSouthNode } from './nodes.js'
 import type { CardNode } from './nodes.js'
 import { makeCardNode, setNodeFace, place } from './cards.js'
 import { state, seatBySocket } from './state.js'
@@ -193,7 +193,20 @@ export function flyMissingTrickCards(trick: { socketId: string; rank: Rank; suit
     const seat = seatBySocket(played.socketId)
     if (!seat) continue
     if (seat.isMe) {
-      flyToPli('south', makeCardNode(played.rank, played.suit, true), played.socketId)
+      // Normally my own card already flew via playCard() (so we never reach here for
+      // it). We DO reach here when the server played for me — a turn-timer auto-play —
+      // where no local playCard ran: fly the real card out of my hand and drop it from
+      // myHand, instead of conjuring a phantom while the original lingers in the fan.
+      // (Session restore: the card's already gone from myHand → findSouthNode misses →
+      // fall back to a fresh node, which is correct there.)
+      const mine = findSouthNode(played.rank, played.suit)
+      if (mine) {
+        const i = state.myHand.findIndex(c => c.rank === played.rank && c.suit === played.suit)
+        if (i >= 0) state.myHand.splice(i, 1)
+        flyToPli('south', mine, played.socketId)
+      } else {
+        flyToPli('south', makeCardNode(played.rank, played.suit, true), played.socketId)
+      }
     } else {
       const handFor = handNodes[seat.position]
       const node = handFor[handFor.length - 1]

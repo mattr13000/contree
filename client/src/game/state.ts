@@ -42,6 +42,10 @@ export interface RenderState {
   /** The 4 cards of the last completed trick (with the seat that played each),
    *  kept so the player can review it via the HUD "Dernier pli" button. */
   lastTrick: { from: Position; rank: Rank; suit: Suit }[] | null
+  /** Turn-timer countdown on the LOCAL clock (performance.now() ms at which it hits 0),
+   *  null = no countdown. turnDuration = the full turn span (ms) for the ring fraction. */
+  turnDeadline: number | null
+  turnDuration: number
 }
 
 export const state: RenderState = {
@@ -64,6 +68,8 @@ export const state: RenderState = {
   trickInfo:    null,
   trickMessage: null,
   lastTrick:    null,
+  turnDeadline: null,
+  turnDuration: 0,
 }
 
 // Transient UI flags held on a mutable object so any game/*.ts module can read/clear

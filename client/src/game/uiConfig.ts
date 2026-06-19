@@ -57,6 +57,10 @@ export interface LayoutPreset {
    *  colour fill · spin = "your turn" rotating-arc period (s) · glow = how far that arc
    *  extends past the rim (px). The name itself shows as a tap/hover tooltip. */
   avatar:    { size: number; ring: number; sat: number; light: number; spin: number; glow: number }
+  /** Turn-timer badge on the active seat's avatar (cercle + chiffre). size/num are
+   *  FACTORS of the avatar diameter (ring px / number px). E/W sit below the avatar
+   *  (ewDy down, ewDx horizontal nudge); N/S sit to the right (nsDx across, nsDy nudge). */
+  timer:     { size: number; num: number; ewDy: number; ewDx: number; nsDx: number; nsDy: number }
   /** HUD vertical offsets, ×ch. bidY = bid box offset from table centre ·
    *  contractY = play-phase contract recap, anchored this far ABOVE the south name plate. */
   hud:       { bidY: number; contractY: number }
@@ -77,6 +81,7 @@ export const LAYOUT_PRESETS: Record<PresetName, LayoutPreset> = {
     plate:   { southY: 1.2, northY: 1.24, sideGap: 0.42, sideY: 0.0 },
     seatFontPx: 30,
     avatar:  { size: 64, ring: 8, sat: 60, light: 30, spin: 2.4, glow: 16 },
+    timer:   { size: 0.92, num: 0.36, ewDy: 35, ewDx: 0, nsDx: 40, nsDy: 0 },
     hud:     { bidY: 0.0, contractY: 0.5 },
     confirm: { cardY: 0.90, scale: 1.30, boxY: 1.89, boxGap: 0.40, boxSize: 58 },
   },
@@ -90,6 +95,7 @@ export const LAYOUT_PRESETS: Record<PresetName, LayoutPreset> = {
     plate:   { southY: 1.9, northY: 0.55, sideGap: 0.38, sideY: 0.0 },
     seatFontPx: 15,
     avatar:  { size: 44, ring: 2.5, sat: 60, light: 30, spin: 2.4, glow: 10 },
+    timer:   { size: 0.92, num: 0.36, ewDy: 20, ewDx: 0, nsDx: 20, nsDy: 0 },
     hud:     { bidY: 0.0, contractY: 0.45 },
     confirm: { cardY: -0.10, scale: 1.35, boxY: 1.30, boxGap: 1.20, boxSize: 60 },
   },

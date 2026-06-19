@@ -25,11 +25,12 @@ import {
 } from './animations.js'
 import { renderChrome } from './chrome.js'
 import { state, ui, seatAt, seatBySocket, isValidCard, sortHand, fireCardPlay } from './state.js'
+import { startTurnTimer, stopTurnTimer, paintTurnTimer } from './turnTimer.js'
 import { soundHover, soundCardPlace } from '../audio/soundManager.js'
 import { getConfirmPlay, getShowNames } from '../core/settings.js'
 import type {
   Rank, Suit, Card, BidInfo,
-  DealtPayload, BidStatePayload, PlayStartPayload, PlayStatePayload, TrickWonPayload,
+  DealtPayload, BidStatePayload, PlayStartPayload, PlayStatePayload, TrickWonPayload, TurnTimerPayload,
 } from '../../../shared/types.js'
 
 // ── Public API re-exports (the contract used by features/*.ts) ────────
@@ -125,6 +126,9 @@ export function applyDealt(data: DealtPayload, animate = true): void {
 
   ui.pendingCard           = null
   ui.lastTrickOpen         = false
+  state.turnDeadline       = null   // a fresh deal: drop any countdown from the last game
+  state.turnDuration       = 0
+  stopTurnTimer()
   state.myHand             = sortHand(data.myHand)
   state.pli                = []
   state.bid                = null
@@ -186,6 +190,9 @@ export function applyBidState(data: BidStatePayload): void {
 
 export function applyPlayStart(data: PlayStartPayload): void {
   ui.pendingCard       = null
+  state.turnDeadline   = null   // bid→play transition; the first play turn re-arms it
+  state.turnDuration   = 0
+  stopTurnTimer()
   state.bid            = data.bid
   state.trump          = data.trump
   state.bidderNickname = null
@@ -212,6 +219,14 @@ export function applyPlayState(data: PlayStateInput): void {
   if (data.bid)   state.bid   = data.bid
 
   state.isMyTurn     = data.currentPlayerSocketId === state.mySocketId
+  // If the turn left me while a card was armed (tap-to-confirm) — e.g. the timer expired
+  // and the server auto-played for me — drop the stale pending so it doesn't stay lifted.
+  if (!state.isMyTurn && ui.pendingCard) {
+    const stale = findSouthNode(ui.pendingCard.rank, ui.pendingCard.suit)
+    stale?.el.classList.remove('lift', 'valid', 'invalid')
+    ui.pendingCard = null
+    restackSouthHand()
+  }
   state.trickMessage = null
   ui.lastTrickOpen   = false   // a card moved → close the review overlay so the table is clear
   state.trickInfo    = {
@@ -245,6 +260,23 @@ export function applyPlayState(data: PlayStateInput): void {
 export function applyYourTurn(data: { validCards: Card[] }): void {
   state.validCards = data.validCards
   layoutAll(false)   // refresh valid/invalid highlight on the south hand
+}
+
+/** Server turn-timer tick: start/refresh the countdown on the active seat (payload),
+ *  or clear it (null = bot's turn, actor disconnected, or between turns). */
+export function applyTurnTimer(data: TurnTimerPayload | null): void {
+  if (!data) {
+    state.turnDeadline = null
+    state.turnDuration = 0
+    stopTurnTimer()
+    renderChrome()
+    return
+  }
+  state.turnDeadline = performance.now() + data.remainingMs
+  state.turnDuration = data.durationMs
+  renderChrome()     // (re)build the badge on the current turn seat
+  paintTurnTimer()   // paint frame 0 now (no blank flash), then drive per-frame
+  startTurnTimer()
 }
 
 export function applyTrickWon(data: TrickWonPayload): void {
