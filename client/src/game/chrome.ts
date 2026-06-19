@@ -135,7 +135,9 @@ function buildHUD(frag: DocumentFragment): void {
   const bid = state.bid
   const hud = document.createElement('div')
   hud.className = 'g-hud'
-  let html = `<div class="g-hud-plis"><span>PLIS</span><b>${tricksPlayed + 1} / 8</b></div>`
+  // +1 shows the trick *in progress*; cap at 8 so the final trick won (tricksPlayed=8)
+  // reads "8 / 8" instead of "9 / 8" during the pause before the game-over modal.
+  let html = `<div class="g-hud-plis"><span>PLIS</span><b>${Math.min(tricksPlayed + 1, 8)} / 8</b></div>`
   if (bid) {
     const symbol = SUIT_SYMBOLS[bid.suit]
     const mult = bid.contree === 'surcontree' ? ' <span class="mult">×4</span>'

@@ -45,11 +45,17 @@ export function initBidding(): void {
     // the deal + "Annonces" lock to lift — nothing should surface mid-deal.
     runAfterDeal(() => {
       applyBidState(data)
-      if (data.lastAction) {
-        if (bidActionTimer) clearTimeout(bidActionTimer)
+      if (bidActionTimer) clearTimeout(bidActionTimer)
+      const myTurn = data.currentBidderSocketId === socket.id
+      if (data.lastAction && myTurn) {
+        // Delay *opening* my overlay so the previous player's action announcement
+        // (and any contrer slam) shows first.
         showBidAction(data.lastAction)
         bidActionTimer = setTimeout(() => applyBidUIState(data, socket.id!, getMyTeam()), BID_ACTION_MS)
       } else {
+        // Not my turn (incl. right after my own auto-pass on timer expiry) → hide
+        // the overlay immediately; there's nothing to wait for.
+        if (data.lastAction) showBidAction(data.lastAction)
         applyBidUIState(data, socket.id!, getMyTeam())
       }
     })
