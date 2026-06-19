@@ -2,7 +2,7 @@
 
 A French 4-player card game (Belote variant) playable in the browser, multiplayer via WebSockets. Built for a small group of friends — no accounts, no database.
 
-**Stack:** Vite · Vanilla JS Canvas · Express · Socket.io  
+**Stack:** TypeScript · Vite · DOM renderer (GSAP) · Express · Socket.io  
 **Deploy:** Railway (GitHub integration, `PORT` injected automatically)
 
 ---
@@ -17,7 +17,9 @@ npm start          # serve dist/ + socket.io on $PORT
 
 Open 4 browser tabs at `http://localhost:5173`, each with a different nickname, all join the same room, creator hits **Démarrer**.
 
-**Faster testing with bots:**
+**Play solo against 3 bots:** the lobby has a **"Jouer contre 3 bots"** button — it spins up a private room with you plus 3 AI players and deals immediately. No extra processes, no other tabs needed. This is a real in-game feature.
+
+**`npm run dev:bots` (room/server testing only):** a separate dev harness that spawns 3 *external* bot clients to fill a multiplayer room — for exercising the room/server flow, not the same thing as solo play above.
 
 ```bash
 npm run dev:bots                  # 3 bots fill the room, auto-start when you join
@@ -82,11 +84,24 @@ First team to reach **500 cumulative points** wins the session. If both teams cr
 ## Project structure
 
 ```
-server/index.js      — Express + Socket.io setup, all socket event handlers
-server/state.js      — in-memory state (players, rooms, games, sessions)
-server/game.js       — card logic, deal/bid/trick flow, scoring
-client/src/main.js   — socket client, lobby/room/game event handlers
-client/src/game.js   — canvas renderer
-client/src/bid-ui.js — bid overlay state machine
-client/src/scoring.js — score computation and score table UI
+shared/                  — domain types, socket event contract, single-source constants + scoring
+  types.ts               — domain types + socket payloads (client/server event maps)
+  constants.ts           — ranks/suits/bids, rank orders, points, seat layout, scoring numbers
+  scoring.ts             — computeGameScore (canonical; used by server AND client)
+
+server/                  — Express + Socket.io, run directly under tsx (no tsc build step)
+  index.ts               — Express + Socket.io setup + connection wiring (thin)
+  state.ts               — in-memory state (players, rooms, games, sessions) + helpers
+  rules.ts               — pure card logic (valid cards, trick winner, deck/shuffle)
+  game.ts                — io-driven flow (deal/bid/trick/score) + apply* actions
+  bot.ts                 — bot driver + heuristic AI for solo mode
+  handlers/              — one file per concern: session, room, bidding, play
+
+client/                  — Vite-bundled; lobby/menus are HTML+CSS, the table is a DOM renderer
+  src/main.ts            — thin bootstrap (calls each feature's init*())
+  src/core/              — cross-cutting infra (socket, router, state, settings)
+  src/audio/             — soundManager (SFX + WebAudio deal engine + music)
+  src/ui/                — bid overlay, announcements, score table
+  src/features/          — one init*() per concern (session, lobby, bidding, play, …)
+  src/game/              — the DOM/GSAP card renderer
 ```
